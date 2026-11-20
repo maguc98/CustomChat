@@ -339,7 +339,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(alignment: .center) {
                 Text("CustomChat")
-                    .font(.system(size: 29, weight: .bold, design: .rounded))
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
                     .tracking(-0.8)
                     .foregroundStyle(Macaron.ink)
                 Spacer()
@@ -347,18 +347,18 @@ struct ContentView: View {
                     Image(systemName: "plus")
                         .font(.system(size: 19, weight: .medium))
                         .foregroundStyle(Color(hex: 0x438FDC))
-                        .frame(width: 46, height: 46)
+                        .frame(width: 42, height: 42)
                         .background(Macaron.blue, in: Circle())
                 }
                 .accessibilityLabel("编辑当前聊天资料")
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 14)
-            .padding(.bottom, 18)
+            .padding(.horizontal, 19)
+            .padding(.top, 10)
+            .padding(.bottom, 13)
 
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Macaron.secondary)
                 TextField("搜索聊天", text: $searchText)
                     .font(.system(size: 15))
@@ -366,13 +366,13 @@ struct ContentView: View {
                     .autocorrectionDisabled()
             }
             .padding(.horizontal, 16)
-            .frame(height: 50)
+            .frame(height: 45)
             .background(Color(hex: 0xEEF1F6), in: Capsule())
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 15)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 9) {
                     Text("最近聊天")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Macaron.secondary)
@@ -420,10 +420,10 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                         .frame(width: 30, height: 42)
                 }
-                IdentityAvatar(data: model.identity.otherAvatarData, name: model.name(for: .other), size: 48, tint: Macaron.pink)
+                IdentityAvatar(data: model.identity.otherAvatarData, name: model.name(for: .other), size: 42, tint: Macaron.pink)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.name(for: .other))
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Macaron.ink)
                     HStack(spacing: 6) {
                         Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
@@ -443,16 +443,16 @@ struct ContentView: View {
                     Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40)
                 }
             }
-            .padding(.horizontal, 19)
-            .padding(.top, 10)
-            .padding(.bottom, 9)
+            .padding(.horizontal, 16)
+            .padding(.top, 7)
+            .padding(.bottom, 7)
             .background(Macaron.card)
 
             Rectangle().fill(Macaron.line).frame(height: 1)
 
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 19) {
+                    VStack(spacing: 15) {
                         Text("今天")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Macaron.secondary)
@@ -481,8 +481,8 @@ struct ContentView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
+                    .padding(.horizontal, 13)
+                    .padding(.bottom, 13)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.messages.count) { _, _ in
@@ -572,9 +572,9 @@ struct ContentView: View {
                 .overlay(Capsule().stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
             }
         }
-        .padding(.horizontal, 17)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 15)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .background(Macaron.card)
     }
 
@@ -582,7 +582,7 @@ struct ContentView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 18) {
                 Text("我的设置")
-                    .font(.system(size: 25, weight: .bold))
+                    .font(.system(size: 23, weight: .bold))
                     .foregroundStyle(Macaron.ink)
                     .padding(.top, 22)
 
@@ -651,7 +651,7 @@ struct ContentView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 16) {
                 Text("通话")
-                    .font(.system(size: 25, weight: .bold))
+                    .font(.system(size: 23, weight: .bold))
                     .foregroundStyle(Macaron.ink)
                     .padding(.top, 22)
 
@@ -724,7 +724,7 @@ struct ContentView: View {
     private var albumView: some View {
         VStack(spacing: 0) {
             Text("相册")
-                .font(.system(size: 25, weight: .bold))
+                .font(.system(size: 23, weight: .bold))
                 .foregroundStyle(Macaron.ink)
                 .padding(.top, 22)
                 .padding(.bottom, 18)
@@ -769,7 +769,7 @@ struct ContentView: View {
                     }
                     .foregroundStyle(selectedTab == tab ? Color(hex: 0x4F9DE8) : Macaron.secondary)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 62)
+                    .frame(height: 56)
                     .background {
                         if selectedTab == tab {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -782,7 +782,7 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 9)
-        .padding(.top, 6)
+        .padding(.top, 4)
         .background(Macaron.card)
         .overlay(alignment: .top) { Rectangle().fill(Macaron.line).frame(height: 1) }
     }
@@ -918,7 +918,7 @@ private struct ChatListRow: View {
     var body: some View {
         HStack(spacing: 13) {
             ZStack(alignment: .bottomTrailing) {
-                IdentityAvatar(data: avatarData, name: name, size: 61, tint: tint)
+                IdentityAvatar(data: avatarData, name: name, size: 54, tint: tint)
                 if isOnline {
                     Circle()
                         .fill(Color(hex: 0x55C987))
@@ -928,7 +928,7 @@ private struct ChatListRow: View {
             }
             VStack(alignment: .leading, spacing: 7) {
                 Text(name)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Macaron.ink)
                 Text(preview.isEmpty ? " " : preview)
                     .font(.system(size: 13))
@@ -946,9 +946,9 @@ private struct ChatListRow: View {
                     .opacity(isOnline ? 1 : 0)
             }
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 15)
-        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
+        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 
@@ -1005,7 +1005,7 @@ private struct SettingsRow: View {
                     .foregroundStyle(Macaron.secondary)
             }
             .padding(.horizontal, 16)
-            .frame(height: 57)
+            .frame(height: 52)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1028,7 +1028,7 @@ private struct SettingsLine: View {
         }
         .font(.system(size: 15, weight: .medium))
         .padding(.horizontal, 16)
-        .frame(height: 55)
+        .frame(height: 50)
         .contentShape(Rectangle())
     }
 }
@@ -1131,7 +1131,7 @@ private struct MessageRow: View {
             if isMe {
                 Spacer(minLength: 58)
             } else {
-                IdentityAvatar(data: avatarData, name: name, size: 38, tint: Macaron.pink)
+                IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.pink)
             }
 
             VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
@@ -1150,7 +1150,7 @@ private struct MessageRow: View {
             }
 
             if isMe {
-                IdentityAvatar(data: avatarData, name: name, size: 38, tint: Macaron.blue)
+                IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.blue)
             } else {
                 Spacer(minLength: 58)
             }
@@ -1183,8 +1183,8 @@ private struct MessageRow: View {
                 .font(.system(size: fontSize))
                 .foregroundStyle(Macaron.ink)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
+                 .padding(.horizontal, 15)
+                .padding(.vertical, 11)
                 .background(
                     isMe ? outgoingColor.opacity(0.78) : Macaron.card,
                     in: RoundedRectangle(cornerRadius: 27, style: .continuous)
