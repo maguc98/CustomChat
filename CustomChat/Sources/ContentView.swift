@@ -49,7 +49,7 @@ struct CallRecord: Identifiable, Codable {
 private final class ChatModel: ObservableObject {
     @Published var messages: [ChatMessage] = [] { didSet { save() } }
     @Published var activeRole: ChatRole = .me
-    @Published var identity = ChatIdentity() { didSet { save() } }
+    @Published var identity = ChatIdentity() { didSet { persistIdentity() } }
     @Published var calls: [CallRecord] = [] { didSet { save() } }
 
     private let messagesKey = "customchat.messages.v1"
@@ -93,6 +93,18 @@ private final class ChatModel: ObservableObject {
     func addCall(isVideo: Bool, duration: Int) {
         calls.insert(CallRecord(isVideo: isVideo, duration: duration), at: 0)
         if calls.count > 100 { calls = Array(calls.prefix(100)) }
+    }
+
+    func updateAvatar(for role: ChatRole, data: Data) {
+        var updated = identity
+        if role == .me { updated.meAvatarData = data } else { updated.otherAvatarData = data }
+        identity = updated
+        persistIdentity()
+    }
+
+    func persistIdentity() {
+        guard let data = try? JSONEncoder().encode(identity) else { return }
+        UserDefaults.standard.set(data, forKey: identityKey)
     }
 
     func name(for role: ChatRole) -> String {
@@ -250,7 +262,7 @@ struct ContentView: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let compact = compactImageData(data) {
-                    model.identity.meAvatarData = compact
+                    model.updateAvatar(for: .me, data: compact)
                 }
                 myAvatarSelection = nil
             }
@@ -260,7 +272,7 @@ struct ContentView: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let compact = compactImageData(data) {
-                    model.identity.otherAvatarData = compact
+                    model.updateAvatar(for: .other, data: compact)
                 }
                 otherAvatarSelection = nil
             }
@@ -781,14 +793,14 @@ struct ContentView: View {
                 VStack(spacing: 14) {
                     identityEditor(
                         title: "我的资料",
-                        name: $model.identity.me,
+                        name: identityNameBinding(for: .me),
                         avatarData: model.identity.meAvatarData,
                         selection: $myAvatarSelection,
                         tint: Macaron.blue
                     )
                     identityEditor(
                         title: "对方资料",
-                        name: $model.identity.other,
+                        name: identityNameBinding(for: .other),
                         avatarData: model.identity.otherAvatarData,
                         selection: $otherAvatarSelection,
                         tint: Macaron.pink
