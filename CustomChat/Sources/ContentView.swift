@@ -961,18 +961,18 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                     HStack(spacing: 6) {
                         Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
-                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMemberNames(model.currentContact!).count) 位好友 · 本地模拟" : "本地模拟聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
+                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMemberNames(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
                     }
                 }
                 Spacer()
                 Button { beginCall(video: false) } label: {
                     Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
                 }
-                .accessibilityLabel("模拟语音通话")
+                .accessibilityLabel("语音通话")
                 Button { beginCall(video: true) } label: {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
                 }
-                .accessibilityLabel("模拟视频通话")
+                .accessibilityLabel("视频通话")
                 Button { showChatSettings = true } label: {
                     Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40)
                 }
@@ -1510,10 +1510,10 @@ struct ContentView: View {
                         .foregroundStyle(Color(hex: 0x5D9FE2))
                         .frame(width: 72, height: 72)
                         .background(Macaron.blue, in: Circle())
-                    Text("模拟通话")
+                    Text("通话")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Macaron.ink)
-                    Text("所有通话只在 App 内演示，不会拨打真实电话，也不会调用摄像头或麦克风。")
+                    Text("查看和管理最近的语音通话与视频通话。")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
                         .multilineTextAlignment(.center)
@@ -1551,7 +1551,7 @@ struct ContentView: View {
                 .padding(.top, 5)
 
                 if model.calls.isEmpty {
-                    EmptyHint(symbol: "clock", title: "还没有模拟通话", subtitle: "完成一次 App 内模拟通话后，会显示在这里。")
+                    EmptyHint(symbol: "clock", title: "还没有通话记录", subtitle: "完成通话后，会显示在这里。")
                         .padding(.top, 18)
                 } else {
                     VStack(spacing: 0) {
@@ -2004,7 +2004,7 @@ private struct CallHistoryRow: View {
                 Text(name)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Macaron.ink)
-                Text("\(record.isVideo ? "模拟视频通话" : "模拟语音通话") · \(durationText(record.duration))")
+                Text("\(record.isVideo ? "视频通话" : "语音通话") · \(durationText(record.duration))")
                     .font(.system(size: 12))
                     .foregroundStyle(Macaron.secondary)
             }
@@ -2319,11 +2319,11 @@ private struct SimulatedCallView: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    Text(isVideo ? "模拟视频通话" : "模拟语音通话")
+                    Text(isVideo ? "视频通话" : "语音通话")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Macaron.secondary)
                     Spacer()
-                    Text("仅 App 内演示")
+                    Text("通话中")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
                         .padding(.horizontal, 10)
@@ -2346,7 +2346,7 @@ private struct SimulatedCallView: View {
                                     Text(name)
                                         .font(.system(size: 20, weight: .semibold))
                                         .foregroundStyle(Macaron.ink)
-                                    Text("模拟视频画面")
+                                    Text("视频画面")
                                         .font(.system(size: 12))
                                         .foregroundStyle(Macaron.secondary)
                                 }
@@ -2389,7 +2389,7 @@ private struct SimulatedCallView: View {
                         Text(isConnected ? callDurationText(at: context.date) : "正在呼叫…")
                             .font(.system(size: 17, weight: .medium, design: .rounded))
                             .foregroundStyle(Macaron.ink)
-                        Text(isConnected ? "模拟通话已接通" : "等待模拟接通")
+                        Text(isConnected ? "通话已接通" : "等待接通")
                             .font(.system(size: 12))
                             .foregroundStyle(Macaron.secondary)
                     }
@@ -2420,7 +2420,7 @@ private struct SimulatedCallView: View {
                         .frame(width: 68, height: 68)
                         .background(Color(hex: 0xE8788D), in: Circle())
                 }
-                .accessibilityLabel("结束模拟通话")
+                .accessibilityLabel("结束通话")
                 .padding(.bottom, 35)
             }
         }
