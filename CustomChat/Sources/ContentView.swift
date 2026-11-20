@@ -536,9 +536,26 @@ private enum Macaron {
     static let line = Color(hex: 0xE9EDF3)
 }
 
-private struct SimulatedCall: Identifiable {
+@MainActor
+private final class SimulatedCall: ObservableObject, Identifiable {
     let id = UUID()
     let isVideo: Bool
+
+    @Published var isConnected = false
+    @Published var isMuted = false
+    @Published var isSpeakerOn = true
+    @Published var isCameraOn = true
+    @Published var connectedAt: Date?
+    @Published var didEnd = false
+    @Published var selectedMedia: PhotosPickerItem?
+    @Published var selectedImage: UIImage?
+    @Published var selectedVideoURL: URL?
+    @Published var videoPlayer: AVPlayer?
+    @Published var showMediaImportError = false
+
+    init(isVideo: Bool) {
+        self.isVideo = isVideo
+    }
 }
 
 private struct SelectedPhoto: Identifiable {
@@ -817,8 +834,11 @@ struct ContentView: View {
                         name: model.name(for: .other),
                         meName: model.name(for: .me),
                         avatarData: model.avatar(for: .other),
-                        isVideo: call.isVideo,
-                        onMinimize: { isCallMinimized = true }
+                        call: call,
+                        onMinimize: {
+                            call.videoPlayer?.pause()
+                            isCallMinimized = true
+                        }
                     ) { duration in
                         model.addCall(isVideo: call.isVideo, duration: duration)
                         model.addCallMessage(isVideo: call.isVideo, duration: duration)
@@ -2396,21 +2416,21 @@ private struct SimulatedCallView: View {
     let name: String
     let meName: String
     let avatarData: Data?
-    let isVideo: Bool
+    let call.isVideo: Bool
     let onMinimize: () -> Void
     let onEnd: (Int) -> Void
 
-    @State private var isConnected = false
-    @State private var isMuted = false
-    @State private var isSpeakerOn = true
-    @State private var isCameraOn = true
-    @State private var connectedAt: Date?
-    @State private var didEnd = false
-    @State private var selectedMedia: PhotosPickerItem?
-    @State private var selectedImage: UIImage?
-    @State private var selectedVideoURL: URL?
-    @State private var videoPlayer: AVPlayer?
-    @State private var showMediaImportError = false
+    @State private var call.isConnected = false
+    @State private var call.isMuted = false
+    @State private var call.isSpeakerOn = true
+    @State private var call.isCameraOn = true
+    @State private var call.connectedAt: Date?
+    @State private var call.didEnd = false
+    @State private var call.selectedMedia: PhotosPickerItem?
+    @State private var call.selectedImage: UIImage?
+    @State private var call.selectedVideoURL: URL?
+    @State private var call.videoPlayer: AVPlayer?
+    @State private var call.showMediaImportError = false
 
     var body: some View {
         ZStack {
@@ -2431,7 +2451,7 @@ private struct SimulatedCallView: View {
                             .background(.white.opacity(0.8), in: Circle())
                     }
                     .accessibilityLabel("返回聊天")
-                    Text(isVideo ? "视频通话" : "语音通话")
+                    Text(call.isVideo ? "视频通话" : "语音通话")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Macaron.secondary)
                     Spacer()
@@ -2447,17 +2467,17 @@ private struct SimulatedCallView: View {
 
                 Spacer()
 
-                if isVideo {
+                if call.isVideo {
                     VStack(spacing: 14) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 32, style: .continuous)
                                 .fill(Color(hex: 0xDDEAF7))
-                            if isCameraOn {
-                                if let videoPlayer {
-                                    VideoPlayer(player: videoPlayer)
+                            if call.isCameraOn {
+                                if let call.videoPlayer {
+                                    VideoPlayer(player: call.videoPlayer)
                                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                                } else if let selectedImage {
-                                    Image(uiImage: selectedImage)
+                                } else if let call.selectedImage {
+                                    Image(uiImage: call.selectedImage)
                                         .resizable()
                                         .scaledToFill()
                                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -2484,7 +2504,7 @@ private struct SimulatedCallView: View {
                         }
                         .frame(height: 390)
                         .overlay(alignment: .topTrailing) {
-                            PhotosPicker(selection: $selectedMedia, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
+                            PhotosPicker(selection: $call.selectedMedia, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
                                 Image(systemName: "photo.badge.plus")
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(.white)
@@ -2518,10 +2538,10 @@ private struct SimulatedCallView: View {
 
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     VStack(spacing: 8) {
-                        Text(isConnected ? callDurationText(at: context.date) : "正在呼叫…")
+                        Text(call.isConnected ? callDurationText(at: context.date) : "正在呼叫…")
                             .font(.system(size: 17, weight: .medium, design: .rounded))
                             .foregroundStyle(Macaron.ink)
-                        Text(isConnected ? "通话已接通" : "等待接通")
+                        Text(call.isConnected ? "通话已接通" : "等待接通")
                             .font(.system(size: 12))
                             .foregroundStyle(Macaron.secondary)
                     }
@@ -2531,15 +2551,15 @@ private struct SimulatedCallView: View {
                 Spacer()
 
                 HStack(spacing: 24) {
-                    CallControlButton(symbol: isMuted ? "mic.slash.fill" : "mic.fill", title: "静音", isActive: isMuted) {
-                        isMuted.toggle()
+                    CallControlButton(symbol: call.isMuted ? "mic.slash.fill" : "mic.fill", title: "静音", isActive: call.isMuted) {
+                        call.isMuted.toggle()
                     }
-                    CallControlButton(symbol: isSpeakerOn ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "扬声器", isActive: isSpeakerOn) {
-                        isSpeakerOn.toggle()
+                    CallControlButton(symbol: call.isSpeakerOn ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "扬声器", isActive: call.isSpeakerOn) {
+                        call.isSpeakerOn.toggle()
                     }
-                    if isVideo {
-                        CallControlButton(symbol: isCameraOn ? "video.fill" : "video.slash.fill", title: "摄像头", isActive: isCameraOn) {
-                            isCameraOn.toggle()
+                    if call.isVideo {
+                        CallControlButton(symbol: call.isCameraOn ? "video.fill" : "video.slash.fill", title: "摄像头", isActive: call.isCameraOn) {
+                            call.isCameraOn.toggle()
                         }
                     }
                 }
@@ -2556,61 +2576,70 @@ private struct SimulatedCallView: View {
                 .padding(.bottom, 35)
             }
         }
-        .onChange(of: selectedMedia) { _, item in
+        .onChange(of: call.selectedMedia) { _, item in
             guard let item else { return }
             Task {
                 if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
                     guard let imported = try? await item.loadTransferable(type: PickedCallVideo.self) else {
-                        showMediaImportError = true
-                        selectedMedia = nil
+                        call.showMediaImportError = true
+                        call.selectedMedia = nil
                         return
                     }
-                    if let oldURL = selectedVideoURL { try? FileManager.default.removeItem(at: oldURL) }
-                    videoPlayer?.pause()
-                    selectedImage = nil
-                    selectedVideoURL = imported.url
+                    if let oldURL = call.selectedVideoURL { try? FileManager.default.removeItem(at: oldURL) }
+                    call.videoPlayer?.pause()
+                    call.selectedImage = nil
+                    call.selectedVideoURL = imported.url
                     let player = AVPlayer(url: imported.url)
-                    videoPlayer = player
+                    call.videoPlayer = player
                     player.play()
                 } else {
                     guard let data = try? await item.loadTransferable(type: Data.self),
                           let image = UIImage(data: data) else {
-                        showMediaImportError = true
-                        selectedMedia = nil
+                        call.showMediaImportError = true
+                        call.selectedMedia = nil
                         return
                     }
-                    if let oldURL = selectedVideoURL { try? FileManager.default.removeItem(at: oldURL) }
-                    videoPlayer?.pause()
-                    videoPlayer = nil
-                    selectedVideoURL = nil
-                    selectedImage = image
+                    if let oldURL = call.selectedVideoURL { try? FileManager.default.removeItem(at: oldURL) }
+                    call.videoPlayer?.pause()
+                    call.videoPlayer = nil
+                    call.selectedVideoURL = nil
+                    call.selectedImage = image
                 }
-                selectedMedia = nil
+                call.selectedMedia = nil
             }
         }
         .task {
+            guard !call.didEnd, !call.isConnected else { return }
             try? await Task.sleep(nanoseconds: 1_600_000_000)
-            guard !didEnd else { return }
-            connectedAt = .now
-            withAnimation(.easeInOut(duration: 0.25)) { isConnected = true }
+            guard !call.didEnd, !call.isConnected else { return }
+            call.connectedAt = .now
+            withAnimation(.easeInOut(duration: 0.25)) { call.isConnected = true }
         }
-        .alert("无法载入媒体", isPresented: $showMediaImportError) {
+        .alert("无法载入媒体", isPresented: $call.showMediaImportError) {
             Button("知道了", role: .cancel) { }
         } message: {
             Text("这张图片或视频暂时无法读取，请换一个文件再试。")
         }
+        .onAppear {
+            call.videoPlayer?.play()
+        }
+        .onDisappear {
+            call.videoPlayer?.pause()
+        }
     }
 
     private func callDurationText(at date: Date) -> String {
-        guard let connectedAt else { return "00:00" }
-        let seconds = max(0, Int(date.timeIntervalSince(connectedAt)))
+        guard let call.connectedAt else { return "00:00" }
+        let seconds = max(0, Int(date.timeIntervalSince(call.connectedAt)))
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
     private func endCall() {
-        guard !didEnd else { return }
-        didEnd = true
-        let duration = connectedAt.map { max(0, Int(Date.now.timeIntervalSince($0))) } ?? 0
+        guard !call.didEnd else { return }
+        call.didEnd = true
+        let duration = call.connectedAt.map { max(0, Int(Date.now.timeIntervalSince($0))) } ?? 0
+        call.videoPlayer?.pause()
+        if let url = call.selectedVideoURL { try? FileManager.default.removeItem(at: url) }
         onEnd(duration)
     }
 }
