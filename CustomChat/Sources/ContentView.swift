@@ -836,6 +836,22 @@ struct ContentView: View {
         .presentationDragIndicator(.visible)
     }
 
+    private func identityNameBinding(for role: ChatRole) -> Binding<String> {
+        Binding(
+            get: { role == .me ? model.identity.me : model.identity.other },
+            set: { newValue in
+                var updated = model.identity
+                if role == .me {
+                    updated.me = newValue
+                } else {
+                    updated.other = newValue
+                }
+                model.identity = updated
+                model.persistIdentity()
+            }
+        )
+    }
+
     private func identityEditor(
         title: String,
         name: Binding<String>,
