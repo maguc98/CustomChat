@@ -2539,6 +2539,128 @@ private struct MomentMediaView: View {
     }
 }
 
+
+private struct CreateGroupSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var groupName = ""
+    @State private var selectedIDs: Set<UUID> = []
+    let contacts: [ChatContact]
+    let onCreate: (String, [UUID]) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("群聊名称") {
+                    TextField("例如：周末出游", text: $groupName)
+                }
+                Section("邀请好友（至少选择 1 位）") {
+                    if contacts.isEmpty {
+                        Text("请先添加好友，再创建群聊。")
+                            .foregroundStyle(Macaron.secondary)
+                    } else {
+                        ForEach(contacts) { contact in
+                            Button {
+                                if selectedIDs.contains(contact.id) {
+                                    selectedIDs.remove(contact.id)
+                                } else {
+                                    selectedIDs.insert(contact.id)
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    IdentityAvatar(data: contact.avatarData, name: contact.name, size: 38, tint: Macaron.pink)
+                                    Text(contact.name).foregroundStyle(Macaron.ink)
+                                    Spacer()
+                                    Image(systemName: selectedIDs.contains(contact.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(selectedIDs.contains(contact.id) ? Color(hex: 0x69B99A) : Macaron.secondary)
+                                }
+                            }
+                            .listRowBackground(Macaron.card)
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Macaron.background)
+            .navigationTitle("创建群聊")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("创建") {
+                        onCreate(groupName, Array(selectedIDs))
+                        dismiss()
+                    }
+                    .disabled(selectedIDs.isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+private struct SimulatedVoiceInputSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var isGenerating = false
+    let onInsert: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Capsule().fill(Color(hex: 0xDDE3EC)).frame(width: 38, height: 5).padding(.top, 10)
+            Image(systemName: "waveform")
+                .font(.system(size: 28, weight: .medium))
+                .foregroundStyle(Color(hex: 0x5799D9))
+                .frame(width: 66, height: 66)
+                .background(Macaron.blue, in: Circle())
+            Text("模拟语音输入")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(Macaron.ink)
+            Text("这里仅展示随机波形动画，不会开启麦克风、录制声音或进行真实语音识别。")
+                .font(.system(size: 12))
+                .foregroundStyle(Macaron.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            HStack(alignment: .center, spacing: 4) {
+                ForEach(0..< thirtyBars, id: \.self) { index in
+                    TimelineView(.animation(minimumInterval: 0.12, paused: false)) { context in
+                        let phase = context.date.timeIntervalSinceReferenceDate * 4.2 + Double(index) * 0.73
+                        Capsule()
+                            .fill(Color(hex: 0x83B9EF))
+                            .frame(width: 4, height: CGFloat(8 + abs(sin(phase)) * 36))
+                    }
+                }
+            }
+            .frame(height: 48)
+            .padding(.horizontal, 24)
+            Button {
+                isGenerating = true
+                onInsert("这是一段模拟语音输入文字。")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { dismiss() }
+            } label: {
+                Text(isGenerating ? "已填入文字" : "模拟生成文字")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(Color(hex: 0x83B9EF), in: Capsule())
+            }
+            .padding(.horizontal, 24)
+            Button("关闭") { dismiss() }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Macaron.secondary)
+            Spacer(minLength: 8)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Macaron.background.ignoresSafeArea())
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.hidden)
+    }
+
+    private var thirtyBars: Int {  thirtyBarsCount }
+    private var thirtyBarsCount: Int {  thirtyBarsConstant }
+    private var thirtyBarsConstant: Int { 30 }
+}
+
 private struct CallControlButton: View {
     let symbol: String
     let title: String
