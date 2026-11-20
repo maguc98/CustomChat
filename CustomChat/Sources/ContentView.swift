@@ -265,9 +265,9 @@ struct ContentView: View {
         .background {
             LinearGradient(
                 colors: [
-                    Color(red: 0.43, green: 0.29, blue: 0.86),
-                    Color(red: 0.87, green: 0.30, blue: 0.65),
-                    Color(red: 1.00, green: 0.53, blue: 0.34)
+                    Color(red: 0.34, green: 0.22, blue: 0.69),
+                    Color(red: 0.67, green: 0.20, blue: 0.52),
+                    Color(red: 0.74, green: 0.30, blue: 0.23)
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
@@ -481,7 +481,7 @@ struct ContentView: View {
 
                     Text("昵称、头像和聊天记录保存在这台设备上。")
                         .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(ink.opacity(0.45))
+                        .foregroundStyle(ink.opacity(0.90))
                         .padding(.bottom, 10)
                 }
                 .padding(16)
@@ -664,19 +664,19 @@ private struct MessageRow: View {
                     .padding(.vertical, 4)
                     .background(isMe ? sky.opacity(0.72) : mint.opacity(0.78), in: Capsule())
 
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: isMe ? .trailing : .leading, spacing: 7) {
                     if let data = message.imageData, let image = UIImage(data: data) {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
-                            .frame(maxWidth: 225, maxHeight: 290)
+                            .frame(maxWidth: 225, maxHeight: 290, alignment: isMe ? .trailing : .leading)
                             .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
                     }
 
                     if !message.text.isEmpty {
                         Text(message.text)
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -685,8 +685,8 @@ private struct MessageRow: View {
                 .background(
                     LinearGradient(
                         colors: isMe
-                            ? [Color(red: 0.29, green: 0.66, blue: 1.00), Color(red: 0.48, green: 0.43, blue: 0.97)]
-                            : [Color(red: 1.00, green: 0.42, blue: 0.58), Color(red: 1.00, green: 0.62, blue: 0.34)],
+                            ? [Color(red: 0.48, green: 0.74, blue: 1.00), Color(red: 0.67, green: 0.60, blue: 1.00)]
+                            : [Color(red: 1.00, green: 0.62, blue: 0.75), Color(red: 1.00, green: 0.76, blue: 0.47)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
