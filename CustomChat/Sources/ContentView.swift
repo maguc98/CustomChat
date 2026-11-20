@@ -1,11 +1,11 @@
 import SwiftUI
 
-private enum ChatRole: String, CaseIterable, Codable {
+enum ChatRole: String, CaseIterable, Codable {
     case other = "对方"
     case me = "我"
 }
 
-private struct ChatMessage: Identifiable, Codable {
+struct ChatMessage: Identifiable, Codable {
     var id: UUID
     var text: String
     var role: ChatRole
@@ -19,7 +19,7 @@ private struct ChatMessage: Identifiable, Codable {
     }
 }
 
-private struct ChatIdentity: Codable {
+struct ChatIdentity: Codable {
     var me = "我"
     var other = "对方"
 }
