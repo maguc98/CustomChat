@@ -2338,6 +2338,10 @@ private struct SimulatedCallView: View {
     @State private var isCameraOn = true
     @State private var connectedAt: Date?
     @State private var didEnd = false
+    @State private var selectedMedia: PhotosPickerItem?
+    @State private var selectedImage: UIImage?
+    @State private var selectedVideoURL: URL?
+    @State private var videoPlayer: AVPlayer?
 
     var body: some View {
         ZStack {
@@ -2380,14 +2384,24 @@ private struct SimulatedCallView: View {
                             RoundedRectangle(cornerRadius: 32, style: .continuous)
                                 .fill(Color(hex: 0xDDEAF7))
                             if isCameraOn {
-                                VStack(spacing: 14) {
-                                    IdentityAvatar(data: avatarData, name: name, size: 118, tint: Macaron.pink)
-                                    Text(name)
-                                        .font(.system(size: 20, weight: .semibold))
-                                        .foregroundStyle(Macaron.ink)
-                                    Text("视频画面")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(Macaron.secondary)
+                                if let videoPlayer {
+                                    VideoPlayer(player: videoPlayer)
+                                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                                } else if let selectedImage {
+                                    Image(uiImage: selectedImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                                } else {
+                                    VStack(spacing: 14) {
+                                        IdentityAvatar(data: avatarData, name: name, size: 118, tint: Macaron.pink)
+                                        Text(name)
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundStyle(Macaron.ink)
+                                        Text("视频画面")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(Macaron.secondary)
+                                    }
                                 }
                             } else {
                                 VStack(spacing: 10) {
@@ -2400,6 +2414,16 @@ private struct SimulatedCallView: View {
                             }
                         }
                         .frame(height: 390)
+                        .overlay(alignment: .topTrailing) {
+                            PhotosPicker(selection: $selectedMedia, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
+                                Image(systemName: "photo.badge.plus")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(11)
+                                    .background(.black.opacity(0.4), in: Circle())
+                            }
+                            .padding(12)
+                        }
                         .overlay(alignment: .bottomTrailing) {
                             VStack(spacing: 6) {
                                 IdentityAvatar(data: nil, name: meName, size: 44, tint: Macaron.blue)
@@ -2461,6 +2485,27 @@ private struct SimulatedCallView: View {
                 }
                 .accessibilityLabel("结束通话")
                 .padding(.bottom, 35)
+            }
+        }
+        .onChange(of: selectedMedia) { _, item in
+            Task {
+                guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
+                if let image = UIImage(data: data) {
+                    selectedImage = image
+                    selectedVideoURL = nil
+                    videoPlayer = nil
+                } else {
+                    let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "mp4"
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("customchat-call-\\(UUID().uuidString).\\(ext)")
+                    do {
+                        try data.write(to: url, options: .atomic)
+                        selectedImage = nil
+                        selectedVideoURL = url
+                        videoPlayer = AVPlayer(url: url)
+                        videoPlayer?.play()
+                    } catch { }
+                }
             }
         }
         .task {
