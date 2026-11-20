@@ -2461,11 +2461,11 @@ private struct SimulatedCallView: View {
                             RoundedRectangle(cornerRadius: 32, style: .continuous)
                                 .fill(Color(hex: 0xDDEAF7))
                             if call.isCameraOn {
-                                if let call.videoPlayer {
-                                    VideoPlayer(player: call.videoPlayer)
+                                if let videoPlayer = call.videoPlayer {
+                                    VideoPlayer(player: videoPlayer)
                                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                                } else if let call.selectedImage {
-                                    Image(uiImage: call.selectedImage)
+                                } else if let selectedImage = call.selectedImage {
+                                    Image(uiImage: selectedImage)
                                         .resizable()
                                         .scaledToFill()
                                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -2617,8 +2617,8 @@ private struct SimulatedCallView: View {
     }
 
     private func callDurationText(at date: Date) -> String {
-        guard let call.connectedAt else { return "00:00" }
-        let seconds = max(0, Int(date.timeIntervalSince(call.connectedAt)))
+        guard let connectedAt = call.connectedAt else { return "00:00" }
+        let seconds = max(0, Int(date.timeIntervalSince(connectedAt)))
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
