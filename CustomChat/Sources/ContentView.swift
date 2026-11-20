@@ -358,12 +358,16 @@ private final class ChatModel: ObservableObject {
         return true
     }
 
-    func receiveTransfer(_ message: ChatMessage) {
-        guard message.kind == .transfer, message.role == .other, !message.isReceived,
+    @discardableResult
+    func receivePayment(_ message: ChatMessage) -> Bool {
+        guard (message.kind == .redPacket || message.kind == .transfer),
+              !message.isReceived,
               let amount = message.amount, amount > 0,
-              let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
-        walletBalance += amount
+              let index = messages.firstIndex(where: { $0.id == message.id }) else { return false }
+        // The local user's wallet is credited when the other identity sent the payment.
+        if message.role == .other { walletBalance += amount }
         messages[index].isReceived = true
+        return true
     }
 
     func addCallMessage(isVideo: Bool, duration: Int) {
@@ -563,6 +567,8 @@ struct ContentView: View {
     @State private var showTransferInput = false
     @State private var paymentAmountDraft = ""
     @State private var paymentNoteDraft = ""
+    @State private var receivedPaymentAmount: Double = 0
+    @State private var showReceivedPayment = false
     @State private var timeEditingMessage: ChatMessage?
     @State private var editedMessageTime = Date()
     @State private var myAvatarSelection: PhotosPickerItem?
@@ -766,6 +772,11 @@ struct ContentView: View {
                     }
                 }
                 .presentationDetents([.medium])
+            }
+            .alert("已收款", isPresented: $showReceivedPayment) {
+                Button("完成", role: .cancel) { }
+            } message: {
+                Text("已成功收款 ¥\(receivedPaymentAmount, specifier: "%.2f")")
             }
             .fullScreenCover(isPresented: Binding(
                 get: { activeCall != nil && !isCallMinimized },
@@ -1043,7 +1054,12 @@ struct ContentView: View {
                                     onChangeTime: { editedMessageTime = message.time; timeEditingMessage = message },
                                     onWithdraw: { model.withdraw(message) },
                                     onImageTap: { data in previewPhoto = SelectedPhoto(data: data) },
-                                    onReceiveTransfer: { model.receiveTransfer(message) }
+                                    onReceiveTransfer: {
+                                        if model.receivePayment(message) {
+                                            receivedPaymentAmount = message.amount ?? 0
+                                            showReceivedPayment = true
+                                        }
+                                    }
                                 )
                                 .id(message.id)
                             }
@@ -2176,9 +2192,19 @@ private struct MessageRow: View {
                 Image(systemName: "gift.fill").font(.system(size: 25)).foregroundStyle(.white)
                     .frame(width: 45, height: 45).background(Color(hex: 0xE97868), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("虚拟红包").font(.system(size: 15, weight: .semibold))
+                    Text("红包").font(.system(size: 15, weight: .semibold))
                     Text(message.note.isEmpty ? "恭喜发财" : message.note).font(.system(size: 12)).opacity(0.8)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
+                    if !isMe && !message.isReceived {
+                        Button("拆开红包") { onReceiveTransfer() }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0xB94E42))
+                            .padding(.top, 3)
+                    } else if message.isReceived {
+                        Text("已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x2C8A5A))
+                    }
                 }.foregroundStyle(Macaron.ink)
             }
             .padding(12).frame(width: 225, alignment: .leading)
@@ -2193,12 +2219,12 @@ private struct MessageRow: View {
                     Text(message.note.isEmpty ? "转账" : message.note).font(.system(size: 12)).opacity(0.8)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
                     if !isMe && !message.isReceived {
-                        Button("收款") { onReceiveTransfer() }
+                        Button("确认收款") { onReceiveTransfer() }
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                             .padding(.top, 3)
-                    } else if !isMe && message.isReceived {
-                        Text("已收款")
+                    } else if message.isReceived {
+                        Text("已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
