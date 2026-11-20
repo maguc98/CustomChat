@@ -1145,25 +1145,6 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("添加聊天内容")
 
-                Button {
-                    if isVoiceComposer {
-                        if voiceCapture.isRecording { _ = voiceCapture.stop() }
-                        withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
-                    } else {
-                        messageFocused = false
-                        isVoiceComposer = true
-                        voiceCapture.start { showMicrophoneAlert = true }
-                    }
-                } label: {
-                    Image(systemName: isVoiceComposer ? "keyboard" : "waveform")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x5799D9))
-                        .frame(width: 40, height: 46)
-                        .background(Macaron.blue, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isVoiceComposer ? "切换文字输入" : "开始语音输入")
-
                 HStack(spacing: 8) {
                     if isVoiceComposer {
                         HStack(alignment: .center, spacing: 3) {
@@ -1174,6 +1155,24 @@ struct ContentView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .accessibilityLabel("根据麦克风声音实时绘制的声波")
+                        Button {
+                            if isVoiceComposer {
+                                if voiceCapture.isRecording { _ = voiceCapture.stop() }
+                                withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+                            } else {
+                                messageFocused = false
+                                isVoiceComposer = true
+                                voiceCapture.start { showMicrophoneAlert = true }
+                            }
+                        } label: {
+                            Image(systemName: isVoiceComposer ? "keyboard" : "waveform")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x5799D9))
+                                .frame(width: 34, height: 34)
+                                .background(Macaron.blue, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isVoiceComposer ? "切换文字输入" : "开始语音输入")
                         Button(action: sendVoiceMessage) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 17, weight: .semibold))
@@ -1191,6 +1190,24 @@ struct ContentView: View {
                             .padding(.vertical, 12)
                             .focused($messageFocused)
                             .onSubmit(sendText)
+                        Button {
+                            if isVoiceComposer {
+                                if voiceCapture.isRecording { _ = voiceCapture.stop() }
+                                withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+                            } else {
+                                messageFocused = false
+                                isVoiceComposer = true
+                                voiceCapture.start { showMicrophoneAlert = true }
+                            }
+                        } label: {
+                            Image(systemName: isVoiceComposer ? "keyboard" : "waveform")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x5799D9))
+                                .frame(width: 34, height: 34)
+                                .background(Macaron.blue, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isVoiceComposer ? "切换文字输入" : "开始语音输入")
                         Button(action: sendText) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 17, weight: .semibold))
