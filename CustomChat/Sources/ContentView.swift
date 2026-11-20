@@ -110,18 +110,19 @@ struct ChatMessage: Identifiable, Codable {
     var isWithdrawn: Bool
     var isReceived: Bool
     var senderName: String?
+    var senderAvatarData: Data?
     var voiceDuration: Double
     var waveform: [Double]
 
     init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil,
-         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil, voiceDuration: Double = 0, waveform: [Double] = []) {
+         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil, senderAvatarData: Data? = nil, voiceDuration: Double = 0, waveform: [Double] = []) {
         id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
         self.kind = kind ?? (imageData == nil ? .text : .image)
-        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName
+        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName; self.senderAvatarData = senderAvatarData
         self.voiceDuration = voiceDuration; self.waveform = waveform
     }
 
-    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName, voiceDuration, waveform }
+    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName, senderAvatarData, voiceDuration, waveform }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -136,6 +137,7 @@ struct ChatMessage: Identifiable, Codable {
         isWithdrawn = try values.decodeIfPresent(Bool.self, forKey: .isWithdrawn) ?? false
         isReceived = try values.decodeIfPresent(Bool.self, forKey: .isReceived) ?? false
         senderName = try values.decodeIfPresent(String.self, forKey: .senderName)
+        senderAvatarData = try values.decodeIfPresent(Data.self, forKey: .senderAvatarData)
         voiceDuration = try values.decodeIfPresent(Double.self, forKey: .voiceDuration) ?? 0
         waveform = try values.decodeIfPresent([Double].self, forKey: .waveform) ?? []
     }
@@ -207,6 +209,7 @@ private final class ChatModel: ObservableObject {
         didSet { persistCurrentThread() }
     }
     @Published var activeRole: ChatRole = .me
+    @Published var activeGroupSenderID: UUID?
     @Published var identity = ChatIdentity() { didSet { persistIdentity() } }
     @Published var calls: [CallRecord] = [] { didSet { saveCalls() } }
     @Published var contacts: [ChatContact] = [] { didSet { persistContacts() } }
@@ -316,8 +319,24 @@ private final class ChatModel: ObservableObject {
         return group.id
     }
 
-    func groupMemberNames(_ contact: ChatContact) -> [String] {
-        (contact.memberIDs ?? []).compactMap { id in contacts.first(where: { $0.id == id })?.name }
+    func groupMembers(_ contact: ChatContact) -> [ChatContact] {
+        (contact.memberIDs ?? []).compactMap { id in contacts.first(where: { $0.id == id }) }
+    }
+
+    func selectGroupSender(_ memberID: UUID?) {
+        activeGroupSenderID = memberID
+        activeRole = memberID == nil ? .me : .other
+    }
+
+    private var outgoingSenderName: String? {
+        guard currentContact?.isGroup == true, let id = activeGroupSenderID,
+              let member = contacts.first(where: { $0.id == id }) else { return nil }
+        return member.name
+    }
+
+    private var outgoingSenderAvatar: Data? {
+        guard currentContact?.isGroup == true, let id = activeGroupSenderID else { return nil }
+        return contacts.first(where: { $0.id == id })?.avatarData
     }
 
     func updateContact(_ updated: ChatContact) {
@@ -356,15 +375,15 @@ private final class ChatModel: ObservableObject {
     func send(_ text: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        messages.append(ChatMessage(text: value, role: activeRole, senderName: activeRole == .other && currentContact?.isGroup == true ? (currentContact.flatMap { groupMemberNames($0).first } ?? "群成员") : nil))
+        messages.append(ChatMessage(text: value, role: activeRole, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
     }
 
     func sendVoice(duration: Double, waveform: [Double]) {
-        messages.append(ChatMessage(role: activeRole, kind: .voice, voiceDuration: duration, waveform: waveform))
+        messages.append(ChatMessage(role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, voiceDuration: duration, waveform: waveform))
     }
 
     func sendImage(_ data: Data) {
-        messages.append(ChatMessage(role: activeRole, imageData: data, kind: .image))
+        messages.append(ChatMessage(role: activeRole, imageData: data, kind: .image, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
     }
 
     @discardableResult
@@ -378,7 +397,7 @@ private final class ChatModel: ObservableObject {
             guard otherWalletBalance >= amount else { return false }
             otherWalletBalance -= amount
         }
-        messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note))
+        messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
         return true
     }
 
@@ -1144,8 +1163,8 @@ struct ContentView: View {
                                 MessageRow(
                                     message: message,
                                     name: message.senderName ?? model.name(for: message.role),
-                                    avatarData: model.avatar(for: message.role),
-                                    isMe: message.role == model.activeRole,
+                                    avatarData: message.senderAvatarData ?? model.avatar(for: message.role),
+                                    isMe: message.role == .me,
                                     fontSize: messageFontSize,
                                     outgoingColor: accentColor,
                                     onEdit: { editing = message; editText = message.text },
@@ -1230,6 +1249,15 @@ struct ContentView: View {
         .padding(.bottom, messageFocused ? 8 : 0)
     }
 
+    private func senderIdentityChip(name: String, selected: Bool, tint: Color) -> some View {
+        Text(name)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Macaron.ink)
+            .padding(.horizontal, 14)
+            .frame(height: 30)
+            .background(selected ? tint.opacity(0.78) : Color(hex: 0xF0F1F5), in: Capsule())
+    }
+
     private var composer: some View {
         VStack(spacing: 11) {
             HStack(spacing: 8) {
@@ -1237,21 +1265,28 @@ struct ContentView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Macaron.secondary)
                     .padding(.trailing, 1)
-                ForEach(ChatRole.allCases, id: \.self) { role in
-                    Button { withAnimation(.easeOut(duration: 0.16)) { model.activeRole = role } } label: {
-                        Text(model.name(for: role))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Macaron.ink)
-                            .padding(.horizontal, 14)
-                            .frame(height: 30)
-                            .background(
-                                model.activeRole == role
-                                    ? (role == .me ? accentColor.opacity(0.72) : Macaron.pink.opacity(0.85))
-                                    : Color(hex: 0xF0F1F5),
-                                in: Capsule()
-                            )
+                if model.currentContact?.isGroup == true {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.16)) { model.selectGroupSender(nil) }
+                    } label: {
+                        senderIdentityChip(name: model.identity.me, selected: model.activeGroupSenderID == nil, tint: accentColor)
                     }
                     .buttonStyle(.plain)
+                    ForEach(model.currentContact.map { model.groupMembers($0) } ?? []) { member in
+                        Button {
+                            withAnimation(.easeOut(duration: 0.16)) { model.selectGroupSender(member.id) }
+                        } label: {
+                            senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    ForEach(ChatRole.allCases, id: \.self) { role in
+                        Button { withAnimation(.easeOut(duration: 0.16)) { model.activeRole = role } } label: {
+                            senderIdentityChip(name: model.name(for: role), selected: model.activeRole == role, tint: role == .me ? accentColor : Macaron.pink)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 Spacer(minLength: 0)
                 Button { messageFocused = false } label: {
