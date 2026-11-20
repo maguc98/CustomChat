@@ -1758,6 +1758,7 @@ private struct MessageRow: View {
     let onChangeTime: () -> Void
     let onWithdraw: () -> Void
     let onImageTap: (Data) -> Void
+    let onReceiveTransfer: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 9) {
@@ -1790,6 +1791,25 @@ private struct MessageRow: View {
                 .foregroundStyle(Macaron.secondary)
                 .padding(.horizontal, 13).padding(.vertical, 8)
                 .background(Color.white.opacity(0.72), in: Capsule())
+        } else if message.kind == .call {
+            HStack(spacing: 11) {
+                Image(systemName: message.note.contains("视频") ? "video.fill" : "phone.fill")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color(hex: 0x8AB7E8), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(message.note.contains("视频") ? "视频通话" : "语音通话")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(message.note.replacingOccurrences(of: "视频通话 · ", with: "").replacingOccurrences(of: "语音通话 · ", with: ""))
+                        .font(.system(size: 12))
+                        .opacity(0.75)
+                }
+                .foregroundStyle(Macaron.ink)
+            }
+            .padding(12)
+            .frame(width: 225, alignment: .leading)
+            .background(Color(hex: 0xE7F0FC), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         } else if message.kind == .redPacket {
             HStack(spacing: 11) {
                 Image(systemName: "gift.fill").font(.system(size: 25)).foregroundStyle(.white)
@@ -1811,6 +1831,16 @@ private struct MessageRow: View {
                     Text("虚拟转账").font(.system(size: 15, weight: .semibold))
                     Text(message.note.isEmpty ? "转账" : message.note).font(.system(size: 12)).opacity(0.8)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
+                    if !isMe && !message.isReceived {
+                        Button("收款") { onReceiveTransfer() }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x2C8A5A))
+                            .padding(.top, 3)
+                    } else if !isMe && message.isReceived {
+                        Text("已收款")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x2C8A5A))
+                    }
                 }.foregroundStyle(Macaron.ink)
             }
             .padding(12).frame(width: 225, alignment: .leading)
