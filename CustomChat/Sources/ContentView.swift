@@ -5,6 +5,7 @@ import UIKit
 import AVKit
 import UniformTypeIdentifiers
 import AudioToolbox
+import Speech
 
 private extension Notification.Name {
     static let customChatScrollToBottom = Notification.Name("customchat.scrollToBottom")
@@ -20,12 +21,21 @@ enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, c
 private let waveformSampleCount = 30
 
 final class VoiceCaptureManager: ObservableObject {
-    @Published private(set) var samples = Array(repeating: 0.08, count: waveformSampleCount)
+    @Published private(set) var samples = Array(repeating: 0.075, count: waveformSampleCount)
     @Published private(set) var isRecording = false
+    @Published private(set) var hasCapture = false
+    @Published var transcript = ""
+
     var onFailure: (() -> Void)?
     private let engine = AVAudioEngine()
+    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
     private var startedAt: Date?
     private var captured: [Double] = []
+    private var lastDuration: Double = 0
+    private var lastWaveform: [Double] = []
+    private var smoothedLevel: Double = 0.075
 
     func start(onDenied: @escaping () -> Void) {
         guard !isRecording else { return }
@@ -33,39 +43,95 @@ final class VoiceCaptureManager: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard granted else { onDenied(); return }
-                self.begin()
+                SFSpeechRecognizer.requestAuthorization { status in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        let canTranscribe = status == .authorized && self.speechRecognizer != nil
+                        if !canTranscribe { onDenied() }
+                        self.begin(enableTranscription: canTranscribe)
+                    }
+                }
             }
         }
     }
 
-    private func begin() {
+    private func begin(enableTranscription: Bool) {
         do {
+            recognitionTask?.cancel()
+            recognitionTask = nil
+            recognitionRequest = nil
+
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
+
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)
             guard format.channelCount > 0 else { throw NSError(domain: "VoiceCapture", code: 1) }
+
+            captured = []
+            lastDuration = 0
+            lastWaveform = []
+            hasCapture = false
+            transcript = ""
+            smoothedLevel = 0.075
+            samples = Array(repeating: 0.075, count: waveformSampleCount)
+
+            if enableTranscription, let recognizer = speechRecognizer, recognizer.isAvailable {
+                let request = SFSpeechAudioBufferRecognitionRequest()
+                request.shouldReportPartialResults = true
+                request.taskHint = .dictation
+                if recognizer.supportsOnDeviceRecognition {
+                    request.requiresOnDeviceRecognition = true
+                }
+                recognitionRequest = request
+                recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        if let result {
+                            self.transcript = result.bestTranscription.formattedString
+                        }
+                        if error != nil || result?.isFinal == true {
+                            self.recognitionRequest = nil
+                        }
+                    }
+                }
+            }
+
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-                guard let channel = buffer.floatChannelData?[0] else { return }
+                guard let self, let channel = buffer.floatChannelData?[0] else { return }
                 let count = Int(buffer.frameLength)
                 guard count > 0 else { return }
+
                 var sum: Float = 0
-                for i in 0..<count { sum += channel[i] * channel[i] }
-                let level = min(1, max(0.035, Double(sqrt(sum / Float(count))) * 7.5))
+                var peak: Float = 0
+                for i in 0..<count {
+                    let sample = abs(channel[i])
+                    sum += sample * sample
+                    peak = max(peak, sample)
+                }
+
+                let rms = Double(sqrt(sum / Float(count)))
+                // Compress the dynamic range and add a little peak sensitivity so
+                // quiet speech still produces visible bars without clipping loud speech.
+                let boosted = pow(max(rms, Double(peak) * 0.16), 0.62) * 3.4
+                let level = min(1, max(0.075, boosted))
+
+                self.recognitionRequest?.append(buffer)
                 DispatchQueue.main.async {
-                    guard let self, self.isRecording else { return }
-                    self.samples.append(level)
+                    guard self.isRecording else { return }
+                    let smoothing = level > self.smoothedLevel ? 0.62 : 0.28
+                    self.smoothedLevel += (level - self.smoothedLevel) * smoothing
+                    self.samples.append(self.smoothedLevel)
                     if self.samples.count > waveformSampleCount {
                         self.samples.removeFirst(self.samples.count - waveformSampleCount)
                     }
-                    self.captured.append(level)
+                    self.captured.append(self.smoothedLevel)
                 }
             }
+
             engine.prepare()
             try engine.start()
-            captured = []
-            samples = Array(repeating: 0.08, count: waveformSampleCount)
             startedAt = Date()
             isRecording = true
         } catch {
@@ -74,25 +140,48 @@ final class VoiceCaptureManager: ObservableObject {
         }
     }
 
-    func stop() -> (duration: Double, waveform: [Double]) {
+    @discardableResult
+    func stop() -> (duration: Double, waveform: [Double], transcript: String) {
+        guard isRecording else {
+            return (lastDuration, lastWaveform, transcript)
+        }
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         isRecording = false
+
         let duration = max(1, Date().timeIntervalSince(startedAt ?? Date()))
-        let source = captured.isEmpty ? Array(repeating: 0.08, count: waveformSampleCount) : captured
+        let source = captured.isEmpty ? Array(repeating: 0.075, count: waveformSampleCount) : captured
         let waveform = (0..<waveformSampleCount).map { i -> Double in
             let a = i * source.count / waveformSampleCount
             let b = max(a + 1, (i + 1) * source.count / waveformSampleCount)
-            return source[a..<min(b, source.count)].max() ?? 0.08
+            return source[a..<min(b, source.count)].max() ?? 0.075
         }
         startedAt = nil
-        return (duration, waveform)
+        lastDuration = duration
+        lastWaveform = waveform
+        hasCapture = true
+        return (duration, waveform, transcript)
+    }
+
+    func consumeCapture() -> (duration: Double, waveform: [Double], transcript: String)? {
+        guard hasCapture else { return nil }
+        let result = (lastDuration, lastWaveform, transcript)
+        hasCapture = false
+        lastDuration = 0
+        lastWaveform = []
+        return result
     }
 
     private func cleanup() {
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         isRecording = false
     }
@@ -378,8 +467,8 @@ private final class ChatModel: ObservableObject {
         messages.append(ChatMessage(text: value, role: activeRole, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
     }
 
-    func sendVoice(duration: Double, waveform: [Double]) {
-        messages.append(ChatMessage(role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, voiceDuration: duration, waveform: waveform))
+    func sendVoice(duration: Double, waveform: [Double], text: String = "") {
+        messages.append(ChatMessage(text: text, role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, voiceDuration: duration, waveform: waveform))
     }
 
     func sendImage(_ data: Data) {
@@ -404,14 +493,24 @@ private final class ChatModel: ObservableObject {
     @discardableResult
     func receivePayment(_ message: ChatMessage) -> Bool {
         guard (message.kind == .redPacket || message.kind == .transfer),
-              message.role != activeRole,
               !message.isReceived,
               let amount = message.amount, amount > 0,
-              let index = messages.firstIndex(where: { $0.id == message.id }) else { return false }
-        // Credit only the identity currently receiving the message.
-        if activeRole == .me { walletBalance += amount }
-        else { otherWalletBalance += amount }
-        messages[index].isReceived = true
+              let index = messages.firstIndex(where: { $0.id == message.id }),
+              !messages[index].isReceived else { return false }
+
+        // The receiver is always the identity opposite to the sender.
+        // Do not rely on activeRole here: in group chat it may still be set
+        // to the selected sender when the receive overlay is presented.
+        let receiverRole: ChatRole = message.role == .me ? .other : .me
+        if receiverRole == .me {
+            walletBalance += amount
+        } else {
+            otherWalletBalance += amount
+        }
+
+        var updatedMessages = messages
+        updatedMessages[index].isReceived = true
+        messages = updatedMessages
         return true
     }
 
@@ -708,7 +807,7 @@ struct ContentView: View {
             }
             if let payment = receivingPayment {
                 PaymentReceiveOverlay(message: payment, onReceive: {
-                    _ = model.receivePayment(payment)
+                    model.receivePayment(payment)
                 }, onDismiss: {
                     receivingPayment = nil
                 })
@@ -750,13 +849,13 @@ struct ContentView: View {
             .onAppear {
                 voiceCapture.onFailure = { showMicrophoneAlert = true }
             }
-            .alert("需要麦克风权限", isPresented: $showMicrophoneAlert) {
+            .alert("需要语音权限", isPresented: $showMicrophoneAlert) {
                 Button("知道了", role: .cancel) { }
                 Button("打开设置") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
             } message: {
-                Text("允许 CustomChat 使用麦克风后，才能根据你的真实声音绘制实时声波。应用不会保存录音或发送音频。")
+                Text("请允许麦克风和语音识别权限，才能显示实时声波并将中文语音转换为文字。应用不会保存录音文件。")
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .inactive || phase == .background {
@@ -1335,41 +1434,70 @@ struct ContentView: View {
 
                 HStack(spacing: 8) {
                     if isVoiceComposer {
-                        HStack(alignment: .center, spacing: 3) {
-                            ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
-                                Capsule().fill(Color(hex: 0x5799D9))
-                                    .frame(width: 3, height: max(4, CGFloat(value) * 34))
+                        VStack(spacing: 8) {
+                            TextField("识别到的文字会显示在这里…", text: $voiceCapture.transcript, axis: .vertical)
+                                .font(.system(size: 14))
+                                .foregroundStyle(Macaron.ink)
+                                .lineLimit(1...3)
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 9)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
+
+                            HStack(spacing: 9) {
+                                Button {
+                                    if voiceCapture.isRecording {
+                                        _ = voiceCapture.stop()
+                                    } else {
+                                        voiceCapture.start { showMicrophoneAlert = true }
+                                    }
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        HStack(alignment: .center, spacing: 2) {
+                                            ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
+                                                Capsule().fill(Color(hex: 0x5799D9))
+                                                    .frame(width: 3, height: max(5, CGFloat(value) * 39))
+                                            }
+                                        }
+                                        .frame(height: 40)
+                                        Image(systemName: voiceCapture.isRecording ? "waveform" : "mic.fill")
+                                            .font(.system(size: 13, weight: .semibold))
+                                        Text(voiceCapture.isRecording ? "轻点声纹完成转写" : "点击声纹重新录制")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .lineLimit(1)
+                                    }
+                                    .foregroundStyle(Color(hex: 0x5799D9))
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(voiceCapture.isRecording ? "结束语音识别" : "重新录制语音")
+
+                                Button(action: sendVoiceMessage) {
+                                    Image(systemName: "arrow.up")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 34, height: 34)
+                                        .background(accentColor.opacity(0.9), in: Circle())
+                                }
+                                .disabled(!voiceCapture.isRecording && !voiceCapture.hasCapture)
+                                .opacity((voiceCapture.isRecording || voiceCapture.hasCapture) ? 1 : 0.38)
+
+                                Button {
+                                    if voiceCapture.isRecording { _ = voiceCapture.stop() }
+                                    withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+                                } label: {
+                                    Image(systemName: "keyboard")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(Color(hex: 0x5799D9))
+                                        .frame(width: 32, height: 32)
+                                        .background(Macaron.blue, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("切换文字输入")
                             }
                         }
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .accessibilityLabel("根据麦克风声音实时绘制的声波")
-                        Button {
-                            if isVoiceComposer {
-                                if voiceCapture.isRecording { _ = voiceCapture.stop() }
-                                withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
-                            } else {
-                                messageFocused = false
-                                isVoiceComposer = true
-                                voiceCapture.start { showMicrophoneAlert = true }
-                            }
-                        } label: {
-                            Image(systemName: isVoiceComposer ? "keyboard" : "waveform")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x5799D9))
-                                .frame(width: 34, height: 34)
-                                .background(Macaron.blue, in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(isVoiceComposer ? "切换文字输入" : "开始语音输入")
-                        Button(action: sendVoiceMessage) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 32, height: 32)
-                                .background(accentColor.opacity(0.9), in: Circle())
-                        }
-                        .disabled(!voiceCapture.isRecording)
-                        .opacity(voiceCapture.isRecording ? 1 : 0.38)
                     } else {
                         TextField("输入消息...", text: $draft, axis: .vertical)
                             .font(.system(size: fontOption == "偏大" ? 16 : 15))
@@ -1410,8 +1538,8 @@ struct ContentView: View {
                 .padding(.leading, 17)
                 .padding(.trailing, 8)
                 .frame(minHeight: 48)
-                .background(Macaron.card, in: Capsule())
-                .overlay(Capsule().stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
+                .background(Macaron.card, in: RoundedRectangle(cornerRadius: isVoiceComposer ? 22 : 999, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: isVoiceComposer ? 22 : 999, style: .continuous).stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
             }
         }
         .padding(.horizontal, 15)
@@ -2032,9 +2160,9 @@ struct ContentView: View {
     }
 
     private func sendVoiceMessage() {
-        guard voiceCapture.isRecording else { return }
-        let captured = voiceCapture.stop()
-        model.sendVoice(duration: captured.duration, waveform: captured.waveform)
+        if voiceCapture.isRecording { _ = voiceCapture.stop() }
+        guard let captured = voiceCapture.consumeCapture() else { return }
+        model.sendVoice(duration: captured.duration, waveform: captured.waveform, text: captured.transcript)
         withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
         playMessageSound()
     }
@@ -2435,10 +2563,11 @@ private struct MessageRow: View {
 
 private struct PaymentReceiveOverlay: View {
     let message: ChatMessage
-    let onReceive: () -> Void
+    let onReceive: () -> Bool
     let onDismiss: () -> Void
     @State private var didReceive = false
     @State private var isAnimating = false
+    @State private var receiveError = false
     private var isRedPacket: Bool { message.kind == .redPacket }
     private var amountText: String { String(format: "%.2f", message.amount ?? 0) }
 
@@ -2477,14 +2606,14 @@ private struct PaymentReceiveOverlay: View {
                                 Text("已存入本机钱包").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0xFFE8B8))
                             } else {
                                 Button {
-                                    onReceive()
+                                    guard onReceive() else { receiveError = true; return }
                                     withAnimation(.spring(response: 0.42, dampingFraction: 0.62)) { didReceive = true; isAnimating = true }
                                 } label: {
                                     Image(systemName: "gift.fill").font(.system(size: 28, weight: .semibold))
                                         .foregroundStyle(Color(hex: 0xB83C32)).frame(width: 76, height: 76)
                                         .background(Color(hex: 0xF7D88B), in: Circle())
                                 }.buttonStyle(.plain).padding(.top, 12)
-                                Text("点击拆开").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0xFFE8B8))
+                                Text(receiveError ? "领取失败，请返回聊天后重试" : "点击拆开").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0xFFE8B8))
                             }
                         }
                     }
@@ -2502,12 +2631,17 @@ private struct PaymentReceiveOverlay: View {
                             Text("已存入本机钱包").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0x55A879))
                         } else {
                             Button {
-                                onReceive()
+                                guard onReceive() else { receiveError = true; return }
                                 withAnimation(.spring(response: 0.38, dampingFraction: 0.62)) { didReceive = true; isAnimating = true }
                             } label: {
                                 Text("确认收款").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
                                     .frame(maxWidth: .infinity).padding(.vertical, 14).background(Color(hex: 0xE5A85F), in: Capsule())
                             }.buttonStyle(.plain)
+                            if receiveError {
+                                Text("领取失败，请返回聊天后重试")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Color(hex: 0xC45C55))
+                            }
                         }
                     }
                     .padding(28).frame(width: 300)
