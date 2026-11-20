@@ -1074,6 +1074,18 @@ private struct ImageCropperSheet: View {
     }
 }
 
+private func cropPreviewData(_ image: UIImage) -> Data? {
+    let longest = max(image.size.width, image.size.height)
+    guard longest > 0 else { return nil }
+    let scale = min(1, 1600 / longest)
+    let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    return UIGraphicsImageRenderer(size: size, format: format)
+        .image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        .jpegData(compressionQuality: 0.84)
+}
+
 private struct PickedCallVideo: Transferable {
     let url: URL
 
@@ -3164,7 +3176,10 @@ private struct SimulatedCallView: View {
                                 .foregroundStyle(Macaron.secondary)
                             }
                         }
-                        .frame(height: 390)
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxHeight: 390)
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                         .overlay(alignment: .topTrailing) {
                             PhotosPicker(selection: $call.selectedMedia, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
                                 Image(systemName: "photo.badge.plus")
@@ -3326,6 +3341,7 @@ private struct AddContactSheet: View {
     @State private var bio = ""
     @State private var avatarSelection: PhotosPickerItem?
     @State private var avatarData: Data?
+    @State private var pendingCropImage: UIImage?
     let onAdd: (String, String, Data?) -> Void
 
     var body: some View {
@@ -3367,8 +3383,24 @@ private struct AddContactSheet: View {
             .onChange(of: avatarSelection) { _, item in
                 guard let item else { return }
                 Task {
-                    avatarData = try? await item.loadTransferable(type: Data.self)
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        pendingCropImage = image
+                    }
                     avatarSelection = nil
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { pendingCropImage != nil },
+                set: { if !$0 { pendingCropImage = nil } }
+            )) {
+                if let image = pendingCropImage {
+                    ImageCropperSheet(image: image, shape: .circle, onCancel: {
+                        pendingCropImage = nil
+                    }) { cropped in
+                        avatarData = cropPreviewData(cropped)
+                        pendingCropImage = nil
+                    }
                 }
             }
         }
@@ -3381,6 +3413,7 @@ private struct FriendProfileSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var contact: ChatContact
     @State private var avatarSelection: PhotosPickerItem?
+    @State private var pendingCropImage: UIImage?
     @State private var showMomentEditor = false
     @State private var momentDraft = ""
     @State private var editingMomentID: UUID?
@@ -3509,11 +3542,25 @@ private struct FriendProfileSheet: View {
             .onChange(of: avatarSelection) { _, item in
                 guard let item else { return }
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self) {
-                        contact.avatarData = data
-                        onUpdate(contact)
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        pendingCropImage = image
                     }
                     avatarSelection = nil
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { pendingCropImage != nil },
+                set: { if !$0 { pendingCropImage = nil } }
+            )) {
+                if let image = pendingCropImage {
+                    ImageCropperSheet(image: image, shape: .circle, onCancel: {
+                        pendingCropImage = nil
+                    }) { cropped in
+                        contact.avatarData = cropPreviewData(cropped)
+                        onUpdate(contact)
+                        pendingCropImage = nil
+                    }
                 }
             }
             .sheet(isPresented: $showMomentEditor) {
@@ -3546,6 +3593,7 @@ private struct MomentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
     @State private var mediaSelection: PhotosPickerItem?
+    @State private var pendingCropImage: UIImage?
     @State private var mediaData: Data?
     @State private var mediaType: String?
     let title: String
@@ -3612,11 +3660,30 @@ private struct MomentEditorSheet: View {
             .onChange(of: mediaSelection) { _, item in
                 guard let item else { return }
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self) {
-                        mediaData = data
-                        mediaType = item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) ? "video" : "image"
+                    if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                        if let data = try? await item.loadTransferable(type: Data.self) {
+                            mediaData = data
+                            mediaType = "video"
+                        }
+                    } else if let data = try? await item.loadTransferable(type: Data.self),
+                              let image = UIImage(data: data) {
+                        pendingCropImage = image
                     }
                     mediaSelection = nil
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { pendingCropImage != nil },
+                set: { if !$0 { pendingCropImage = nil } }
+            )) {
+                if let image = pendingCropImage {
+                    ImageCropperSheet(image: image, shape: .roundedSquare, onCancel: {
+                        pendingCropImage = nil
+                    }) { cropped in
+                        mediaData = cropPreviewData(cropped)
+                        mediaType = "image"
+                        pendingCropImage = nil
+                    }
                 }
             }
         }
