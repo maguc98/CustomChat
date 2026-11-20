@@ -1272,13 +1272,15 @@ private struct SimulatedCallView: View {
                     }
                 }
 
-                VStack(spacing: 8) {
-                    Text(isConnected ? callDurationText : "正在呼叫…")
-                        .font(.system(size: 17, weight: .medium, design: .rounded))
-                        .foregroundStyle(Macaron.ink)
-                    Text(isConnected ? "模拟通话已接通" : "等待模拟接通")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Macaron.secondary)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    VStack(spacing: 8) {
+                        Text(isConnected ? callDurationText(at: context.date) : "正在呼叫…")
+                            .font(.system(size: 17, weight: .medium, design: .rounded))
+                            .foregroundStyle(Macaron.ink)
+                        Text(isConnected ? "模拟通话已接通" : "等待模拟接通")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Macaron.secondary)
+                    }
                 }
                 .padding(.top, 26)
 
@@ -1318,9 +1320,9 @@ private struct SimulatedCallView: View {
         }
     }
 
-    private var callDurationText: String {
+    private func callDurationText(at date: Date) -> String {
         guard let connectedAt else { return "00:00" }
-        let seconds = max(0, Int(Date.now.timeIntervalSince(connectedAt)))
+        let seconds = max(0, Int(date.timeIntervalSince(connectedAt)))
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
