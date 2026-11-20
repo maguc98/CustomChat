@@ -572,6 +572,7 @@ struct ContentView: View {
     @State private var activeCall: SimulatedCall?
     @State private var previewPhoto: SelectedPhoto?
     @State private var showClearConfirmation = false
+    @State private var showAllMyMoments = false
     @State private var showBackgroundPicker = false
     @State private var showThemePicker = false
     @State private var showFontPicker = false
@@ -1313,6 +1314,11 @@ struct ContentView: View {
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(Macaron.ink)
                         Spacer()
+                        if !model.myMoments.isEmpty {
+                            Button("查看全部") { showAllMyMoments = true }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x4F91D2))
+                        }
                         Button {
                             editingMyMomentID = nil
                             myMomentDraft = ""
@@ -1329,7 +1335,7 @@ struct ContentView: View {
                         EmptyHint(symbol: "text.bubble", title: "还没有朋友圈", subtitle: "记录生活，发布第一条动态吧。")
                             .padding(.vertical, 20)
                     } else {
-                        ForEach(model.myMoments) { post in
+                        ForEach(Array(model.myMoments.prefix(3))) { post in
                             VStack(alignment: .leading, spacing: 9) {
                                 Text(post.text)
                                     .font(.system(size: 14))
@@ -1358,6 +1364,60 @@ struct ContentView: View {
                         }
                     }
                 }
+                .sheet(isPresented: $showAllMyMoments) {
+                    NavigationStack {
+                        ScrollView(showsIndicators: false) {
+                            LazyVStack(spacing: 12) {
+                                ForEach(model.myMoments) { post in
+                                    VStack(alignment: .leading, spacing: 9) {
+                                        if !post.text.isEmpty {
+                                            Text(post.text)
+                                                .font(.system(size: 14))
+                                                .foregroundStyle(Macaron.ink)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        if let mediaData = post.mediaData {
+                                            MomentMediaView(data: mediaData, mediaType: post.mediaType)
+                                        }
+                                        Text(post.date, format: .dateTime.year().month().day().hour().minute())
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(Macaron.secondary)
+                                    }
+                                    .padding(15)
+                                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                    .contextMenu {
+                                        Button("编辑动态", systemImage: "pencil") {
+                                            editingMyMomentID = post.id
+                                            myMomentDraft = post.text
+                                            showAllMyMoments = false
+                                            showMyMomentEditor = true
+                                        }
+                                        Button("删除动态", systemImage: "trash", role: .destructive) {
+                                            model.myMoments.removeAll { $0.id == post.id }
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(18)
+                        }
+                        .background(Macaron.background)
+                        .navigationTitle("我的朋友圈")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button {
+                                    editingMyMomentID = nil
+                                    myMomentDraft = ""
+                                    showAllMyMoments = false
+                                    showMyMomentEditor = true
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                            }
+                        }
+                    }
+                    .presentationDragIndicator(.visible)
+                }
                 .sheet(isPresented: $showMyMomentEditor) {
                     MomentEditorSheet(
                         title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
@@ -1376,7 +1436,14 @@ struct ContentView: View {
                     }
                 }
 
-                VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("设置")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 15)
+                        .padding(.top, 12)
+                    VStack(spacing: 0) {
                     SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
                         showBackgroundPicker = true
                     }
@@ -1396,8 +1463,10 @@ struct ContentView: View {
                     Button { showClearConfirmation = true } label: {
                         SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
                     }
+                    }
+                    .padding(.horizontal, 15)
+                    .padding(.bottom, 8)
                 }
-                .padding(.horizontal, 18)
                 .padding(.vertical, 4)
                 .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .padding(.horizontal, 18)
