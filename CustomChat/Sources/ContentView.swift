@@ -570,6 +570,7 @@ struct ContentView: View {
     @State private var editing: ChatMessage?
     @State private var editText = ""
     @State private var activeCall: SimulatedCall?
+    @State private var isCallMinimized = false
     @State private var previewPhoto: SelectedPhoto?
     @State private var showClearConfirmation = false
     @State private var showAllMyMoments = false
@@ -618,6 +619,26 @@ struct ContentView: View {
             } else {
                 mainTabView
                     .transition(.opacity)
+            }
+            if let call = activeCall, isCallMinimized {
+                VStack {
+                    Spacer()
+                    Button { isCallMinimized = false } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: call.isVideo ? "video.fill" : "phone.fill")
+                            Text(call.isVideo ? "视频通话进行中" : "语音通话进行中")
+                            Spacer()
+                            Text("返回通话")
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                        .padding(14)
+                        .background(Macaron.blue, in: Capsule())
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 10)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
     }
@@ -746,16 +767,25 @@ struct ContentView: View {
                 }
                 .presentationDetents([.medium])
             }
-            .fullScreenCover(item: $activeCall) { call in
-                SimulatedCallView(
-                    name: model.name(for: .other),
-                    meName: model.name(for: .me),
-                    avatarData: model.avatar(for: .other),
-                    isVideo: call.isVideo
-                ) { duration in
-                    model.addCall(isVideo: call.isVideo, duration: duration)
-                    model.addCallMessage(isVideo: call.isVideo, duration: duration)
-                    activeCall = nil
+            .fullScreenCover(isPresented: Binding(
+                get: { activeCall != nil && !isCallMinimized },
+                set: { presented in
+                    if !presented && activeCall != nil { isCallMinimized = true }
+                }
+            )) {
+                if let call = activeCall {
+                    SimulatedCallView(
+                        name: model.name(for: .other),
+                        meName: model.name(for: .me),
+                        avatarData: model.avatar(for: .other),
+                        isVideo: call.isVideo,
+                        onMinimize: { isCallMinimized = true }
+                    ) { duration in
+                        model.addCall(isVideo: call.isVideo, duration: duration)
+                        model.addCallMessage(isVideo: call.isVideo, duration: duration)
+                        activeCall = nil
+                        isCallMinimized = false
+                    }
                 }
             }
     }
@@ -2299,6 +2329,7 @@ private struct SimulatedCallView: View {
     let meName: String
     let avatarData: Data?
     let isVideo: Bool
+    let onMinimize: () -> Void
     let onEnd: (Int) -> Void
 
     @State private var isConnected = false
@@ -2318,7 +2349,15 @@ private struct SimulatedCallView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                HStack {
+                HStack(spacing: 12) {
+                    Button(action: onMinimize) {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                            .frame(width: 34, height: 34)
+                            .background(.white.opacity(0.8), in: Circle())
+                    }
+                    .accessibilityLabel("返回聊天")
                     Text(isVideo ? "视频通话" : "语音通话")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Macaron.secondary)
