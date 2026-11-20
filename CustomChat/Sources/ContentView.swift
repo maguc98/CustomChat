@@ -65,22 +65,63 @@ struct CallRecord: Identifiable, Codable {
     }
 }
 
+struct MomentPost: Identifiable, Codable {
+    var id: UUID
+    var text: String
+    var date: Date
+
+    init(text: String, date: Date = .now) {
+        id = UUID()
+        self.text = text
+        self.date = date
+    }
+}
+
+struct ChatContact: Identifiable, Codable {
+    var id: UUID
+    var name: String
+    var avatarData: Data?
+    var bio: String
+    var notes: String
+    var moments: [MomentPost]
+
+    init(id: UUID = UUID(), name: String, avatarData: Data? = nil,
+         bio: String = "分享生活，记录日常。", notes: String = "", moments: [MomentPost] = []) {
+        self.id = id
+        self.name = name
+        self.avatarData = avatarData
+        self.bio = bio
+        self.notes = notes
+        self.moments = moments
+    }
+}
+
 @MainActor
 private final class ChatModel: ObservableObject {
-    @Published var messages: [ChatMessage] = [] { didSet { save() } }
+    @Published var messages: [ChatMessage] = [] {
+        didSet { persistCurrentThread() }
+    }
     @Published var activeRole: ChatRole = .me
     @Published var identity = ChatIdentity() { didSet { persistIdentity() } }
-    @Published var calls: [CallRecord] = [] { didSet { save() } }
+    @Published var calls: [CallRecord] = [] { didSet { saveCalls() } }
+    @Published var contacts: [ChatContact] = [] { didSet { persistContacts() } }
+    @Published var selectedContactID: UUID?
+    @Published var myMoments: [MomentPost] = [] { didSet { persistMyMoments() } }
+    @Published var walletBalance: Double = 1000 {
+        didSet { UserDefaults.standard.set(walletBalance, forKey: walletKey) }
+    }
 
     private let messagesKey = "customchat.messages.v1"
+    private let threadsKey = "customchat.threads.v1"
     private let identityKey = "customchat.identity.v1"
     private let callsKey = "customchat.calls.v1"
+    private let contactsKey = "customchat.contacts.v1"
+    private let myMomentsKey = "customchat.myMoments.v1"
+    private let walletKey = "customchat.wallet.balance.v1"
+    private var threadMessages: [String: [ChatMessage]] = [:]
+    private var isSwitchingThread = false
 
     init() {
-        if let data = UserDefaults.standard.data(forKey: messagesKey),
-           let value = try? JSONDecoder().decode([ChatMessage].self, from: data) {
-            messages = value
-        }
         if let fileURL = Self.identityFileURL(),
            let data = try? Data(contentsOf: fileURL),
            let value = try? JSONDecoder().decode(ChatIdentity.self, from: data) {
@@ -88,13 +129,87 @@ private final class ChatModel: ObservableObject {
             UserDefaults.standard.set(data, forKey: identityKey)
         } else if let data = UserDefaults.standard.data(forKey: identityKey),
                   let value = try? JSONDecoder().decode(ChatIdentity.self, from: data) {
-            // Migrate profiles saved by previous versions into the durable file store.
             identity = value
-            persistIdentity()
         }
+
+        if let data = UserDefaults.standard.data(forKey: contactsKey),
+           let value = try? JSONDecoder().decode([ChatContact].self, from: data),
+           !value.isEmpty {
+            contacts = value
+        } else {
+            contacts = [ChatContact(name: identity.other, avatarData: identity.otherAvatarData)]
+        }
+        selectedContactID = contacts.first?.id
+
+        if let data = UserDefaults.standard.data(forKey: threadsKey),
+           let value = try? JSONDecoder().decode([String: [ChatMessage]].self, from: data) {
+            threadMessages = value
+        } else if let legacyData = UserDefaults.standard.data(forKey: messagesKey),
+                  let legacyMessages = try? JSONDecoder().decode([ChatMessage].self, from: legacyData),
+                  let firstContactID = contacts.first?.id {
+            // Migrate the original single-chat history into the first contact's thread.
+            threadMessages[firstContactID.uuidString] = legacyMessages
+        }
+
+        isSwitchingThread = true
+        messages = selectedContactID.flatMap { threadMessages[$0.uuidString] } ?? []
+        isSwitchingThread = false
+
         if let data = UserDefaults.standard.data(forKey: callsKey),
            let value = try? JSONDecoder().decode([CallRecord].self, from: data) {
             calls = value
+        }
+        if let data = UserDefaults.standard.data(forKey: myMomentsKey),
+           let value = try? JSONDecoder().decode([MomentPost].self, from: data) {
+            myMoments = value
+        }
+        if let storedBalance = UserDefaults.standard.object(forKey: walletKey) as? Double {
+            walletBalance = max(0, storedBalance)
+        }
+        persistContacts()
+        persistCurrentThread()
+    }
+
+    var currentContact: ChatContact? {
+        contacts.first(where: { $0.id == selectedContactID }) ?? contacts.first
+    }
+
+    func selectContact(_ id: UUID) {
+        guard selectedContactID != id else { return }
+        persistCurrentThread()
+        selectedContactID = id
+        isSwitchingThread = true
+        messages = threadMessages[id.uuidString] ?? []
+        isSwitchingThread = false
+    }
+
+    @discardableResult
+    func addContact(name: String, bio: String, avatarData: Data?) -> UUID {
+        let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let contact = ChatContact(
+            name: cleanedName.isEmpty ? "新好友" : cleanedName,
+            avatarData: avatarData,
+            bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "分享生活，记录日常。" : bio
+        )
+        contacts.append(contact)
+        selectContact(contact.id)
+        return contact.id
+    }
+
+    func updateContact(_ updated: ChatContact) {
+        guard let index = contacts.firstIndex(where: { $0.id == updated.id }) else { return }
+        contacts[index] = updated
+    }
+
+    func preview(for contact: ChatContact) -> String {
+        let last = threadMessages[contact.id.uuidString]?.last
+        guard let last else { return "开始你们的第一段对话" }
+        if last.isWithdrawn { return "撤回了一条消息" }
+        switch last.kind {
+        case .image: return "发来了一张图片"
+        case .redPacket: return "发送了一个虚拟红包"
+        case .transfer: return "发送了一笔虚拟转账"
+        case .text: return last.text
         }
     }
 
@@ -108,8 +223,20 @@ private final class ChatModel: ObservableObject {
         messages.append(ChatMessage(role: activeRole, imageData: data, kind: .image))
     }
 
-    func sendPayment(kind: ChatMessageKind, amount: Double, note: String) {
+    @discardableResult
+    func sendPayment(kind: ChatMessageKind, amount: Double, note: String) -> Bool {
+        guard amount > 0 else { return false }
+        if kind == .transfer {
+            if activeRole == .me {
+                guard walletBalance >= amount else { return false }
+                walletBalance -= amount
+            } else {
+                // Incoming transfers increase the local wallet; they never debit it.
+                walletBalance += amount
+            }
+        }
         messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note))
+        return true
     }
 
     func update(_ message: ChatMessage, text: String) {
@@ -147,9 +274,23 @@ private final class ChatModel: ObservableObject {
     }
 
     func updateAvatar(for role: ChatRole, data: Data) {
-        var updated = identity
-        if role == .me { updated.meAvatarData = data } else { updated.otherAvatarData = data }
-        identity = updated
+        if role == .me {
+            var updated = identity
+            updated.meAvatarData = data
+            identity = updated
+        } else if var contact = currentContact {
+            contact.avatarData = data
+            updateContact(contact)
+        }
+    }
+
+    func name(for role: ChatRole) -> String {
+        let value = role == .me ? identity.me : (currentContact?.name ?? identity.other)
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? role.rawValue : value
+    }
+
+    func avatar(for role: ChatRole) -> Data? {
+        role == .me ? identity.meAvatarData : currentContact?.avatarData
     }
 
     private static func identityFileURL() -> URL? {
@@ -165,42 +306,53 @@ private final class ChatModel: ObservableObject {
     func persistIdentity() {
         guard let fileURL = Self.identityFileURL(),
               let data = try? JSONEncoder().encode(identity) else { return }
-
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            // Atomic file replacement prevents a force-quit during a write from
-            // leaving a partially written profile or avatar.
             try data.write(to: fileURL, options: .atomic)
-
-            // Keep the previous UserDefaults entry as a compatibility backup.
             UserDefaults.standard.set(data, forKey: identityKey)
         } catch {
             NSLog("CustomChat: failed to persist identity: %@", error.localizedDescription)
         }
     }
 
-    func name(for role: ChatRole) -> String {
-        let value = role == .me ? identity.me : identity.other
-        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? role.rawValue : value
+    private func persistContacts() {
+        guard let data = try? JSONEncoder().encode(contacts) else { return }
+        UserDefaults.standard.set(data, forKey: contactsKey)
     }
 
-    func avatar(for role: ChatRole) -> Data? {
-        role == .me ? identity.meAvatarData : identity.otherAvatarData
-    }
-
-    private func save() {
+    private func persistCurrentThread() {
+        guard !isSwitchingThread, let selectedContactID else { return }
+        threadMessages[selectedContactID.uuidString] = messages
+        if let data = try? JSONEncoder().encode(threadMessages) {
+            UserDefaults.standard.set(data, forKey: threadsKey)
+        }
+        // Keep the legacy key current for backwards compatibility with older builds.
         if let data = try? JSONEncoder().encode(messages) {
             UserDefaults.standard.set(data, forKey: messagesKey)
         }
-        if let data = try? JSONEncoder().encode(identity) {
-            UserDefaults.standard.set(data, forKey: identityKey)
-        }
+    }
+
+    private func saveCalls() {
         if let data = try? JSONEncoder().encode(calls) {
             UserDefaults.standard.set(data, forKey: callsKey)
         }
+    }
+
+    private func persistMyMoments() {
+        if let data = try? JSONEncoder().encode(myMoments) {
+            UserDefaults.standard.set(data, forKey: myMomentsKey)
+        }
+    }
+
+    private func save() {
+        persistIdentity()
+        persistContacts()
+        persistCurrentThread()
+        saveCalls()
+        persistMyMoments()
     }
 }
 
@@ -248,7 +400,15 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .chats
     @State private var showConversation = false
-    @State private var showIdentitySettings = false
+    @State private var showMyProfileEditor = false
+    @State private var showAddContact = false
+    @State private var showFriendProfile = false
+    @State private var showBalanceEditor = false
+    @State private var showInsufficientBalance = false
+    @State private var walletBalanceDraft = ""
+    @State private var showMyMomentEditor = false
+    @State private var myMomentDraft = ""
+    @State private var editingMyMomentID: UUID?
     @State private var searchText = ""
     @State private var draft = ""
     @State private var isComposerVisible = true
@@ -331,7 +491,21 @@ struct ContentView: View {
                     model.persistIdentity()
                 }
             }
-            .sheet(isPresented: $showIdentitySettings) { settingsSheet }
+            .sheet(isPresented: $showMyProfileEditor) { myProfileEditor }
+            .sheet(isPresented: $showAddContact) {
+                AddContactSheet { name, bio, avatarData in
+                    model.addContact(name: name, bio: bio, avatarData: avatarData)
+                    showAddContact = false
+                    showConversation = true
+                }
+            }
+            .sheet(isPresented: $showFriendProfile) {
+                if let contact = model.currentContact {
+                    FriendProfileSheet(contact: contact) { updated in
+                        model.updateContact(updated)
+                    }
+                }
+            }
             .sheet(item: $previewPhoto) { photo in
                 PhotoPreviewView(data: photo.data)
             }
@@ -380,7 +554,7 @@ struct ContentView: View {
                 Button("取消", role: .cancel) {}
                 Button("发送") { sendPaymentMessage(kind: .transfer) }
             } message: {
-                Text("仅用于聊天界面演示，不涉及真实资金交易。")
+                Text("使用本地模拟钱包记录，不涉及真实资金交易。")
             }
             .sheet(isPresented: Binding(
                 get: { timeEditingMessage != nil },
@@ -481,6 +655,11 @@ struct ContentView: View {
                     }
                 }
             }
+            .alert("余额不足", isPresented: $showInsufficientBalance) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text("你的钱包余额不足，请先在“我的”页面调整模拟余额。")
+            }
             .alert("清空聊天记录？", isPresented: $showClearConfirmation) {
                 Button("取消", role: .cancel) {}
                 Button("清空", role: .destructive) {
@@ -524,14 +703,14 @@ struct ContentView: View {
                     .tracking(-0.8)
                     .foregroundStyle(Macaron.ink)
                 Spacer()
-                Button { showIdentitySettings = true } label: {
+                Button { showAddContact = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 19, weight: .medium))
                         .foregroundStyle(Color(hex: 0x438FDC))
                         .frame(width: 42, height: 42)
                         .background(Macaron.blue, in: Circle())
                 }
-                .accessibilityLabel("编辑当前聊天资料")
+                .accessibilityLabel("添加好友")
             }
             .padding(.horizontal, 19)
             .padding(.top, 10)
@@ -559,28 +738,34 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.secondary)
                         .padding(.horizontal, 5)
 
-                    if model.name(for: .other).localizedCaseInsensitiveContains(searchText)
-                        || "聊天".localizedCaseInsensitiveContains(searchText)
-                        || searchText.isEmpty {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.22)) { showConversation = true }
-                        } label: {
-                            ChatListRow(
-                                name: model.name(for: .other),
-                                preview: model.messages.last.map {
-                                    $0.imageData == nil ? $0.text : "发来了一张图片"
-                                } ?? "开始你们的第一段对话",
-                                time: model.messages.last?.time.formatted(date: .omitted, time: .shortened) ?? "现在",
-                                avatarData: model.identity.otherAvatarData,
-                                tint: Macaron.pink,
-                                isOnline: true,
-                                accentColor: accentColor
-                            )
-                        }
-                        .buttonStyle(.plain)
+                    let filteredContacts = model.contacts.filter {
+                        searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText)
+                    }
+                    if filteredContacts.isEmpty {
+                        EmptyHint(
+                            symbol: "person.crop.circle.badge.plus",
+                            title: model.contacts.isEmpty ? "还没有好友" : "没有找到好友",
+                            subtitle: model.contacts.isEmpty ? "点击右上角加号，添加第一个联系人。" : "试试其他昵称。"
+                        )
+                        .padding(.top, 50)
                     } else {
-                        EmptyHint(symbol: "magnifyingglass", title: "没有找到聊天", subtitle: "试试对方的昵称。")
-                            .padding(.top, 50)
+                        ForEach(filteredContacts) { contact in
+                            Button {
+                                model.selectContact(contact.id)
+                                withAnimation(.easeInOut(duration: 0.22)) { showConversation = true }
+                            } label: {
+                                ChatListRow(
+                                    name: contact.name,
+                                    preview: model.preview(for: contact),
+                                    time: " ",
+                                    avatarData: contact.avatarData,
+                                    tint: Macaron.pink,
+                                    isOnline: true,
+                                    accentColor: accentColor
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
                 .padding(.horizontal, 18)
@@ -793,27 +978,154 @@ struct ContentView: View {
     private var profileView: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 18) {
-                Text("我的设置")
-                    .font(.system(size: 23, weight: .bold))
-                    .foregroundStyle(Macaron.ink)
-                    .padding(.top, 22)
-
-                VStack(spacing: 10) {
-                    ProfileIdentityCard(
-                        title: "我的昵称",
-                        name: model.name(for: .me),
-                        avatarData: model.identity.meAvatarData,
-                        tint: Macaron.blue
-                    ) { showIdentitySettings = true }
-
-                    ProfileIdentityCard(
-                        title: "对方昵称",
-                        name: model.name(for: .other),
-                        avatarData: model.identity.otherAvatarData,
-                        tint: Macaron.pink
-                    ) { showIdentitySettings = true }
+                HStack {
+                    Text("我的")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(Macaron.ink)
+                    Spacer()
+                    Button { showMyProfileEditor = true } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x4F91D2))
+                            .frame(width: 40, height: 40)
+                            .background(Macaron.blue, in: Circle())
+                    }
+                    .accessibilityLabel("编辑我的资料")
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 22)
+
+                Button { showMyProfileEditor = true } label: {
+                    HStack(spacing: 14) {
+                        IdentityAvatar(data: model.identity.meAvatarData, name: model.name(for: .me), size: 66, tint: Macaron.blue)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(model.name(for: .me))
+                                .font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(Macaron.ink)
+                            Text("编辑头像与个人资料")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Macaron.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Macaron.secondary)
+                    }
+                    .padding(17)
+                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+                }
+                .buttonStyle(.plain)
                 .padding(.horizontal, 18)
+
+                VStack(alignment: .leading, spacing: 13) {
+                    HStack {
+                        Label("我的钱包", systemImage: "wallet.pass.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        Spacer()
+                        Button("修改余额") {
+                            walletBalanceDraft = String(format: "%.2f", model.walletBalance)
+                            showBalanceEditor = true
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                    }
+                    Text("账户余额")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                    Text("¥\(model.walletBalance, specifier: "%.2f")")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundStyle(Macaron.ink)
+                    Text("仅为本地模拟钱包。你向好友转账时扣款，好友向你转账时余额增加，不会扣款。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Macaron.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    LinearGradient(
+                        colors: [Color(hex: 0xE8F3FF), Color(hex: 0xF2EDFC)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+                )
+                .padding(.horizontal, 18)
+                .alert("修改钱包余额", isPresented: $showBalanceEditor) {
+                    TextField("输入余额", text: $walletBalanceDraft)
+                        .keyboardType(.decimalPad)
+                    Button("取消", role: .cancel) {}
+                    Button("保存") {
+                        if let value = Double(walletBalanceDraft), value >= 0 {
+                            model.walletBalance = value
+                        }
+                    }
+                } message: {
+                    Text("余额仅保存在本机，用于模拟聊天转账。")
+                }
+
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("我的朋友圈")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        Spacer()
+                        Button {
+                            editingMyMomentID = nil
+                            myMomentDraft = ""
+                            showMyMomentEditor = true
+                        } label: {
+                            Label("发布", systemImage: "plus")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x4F91D2))
+                        }
+                    }
+                    .padding(.horizontal, 20)
+
+                    if model.myMoments.isEmpty {
+                        EmptyHint(symbol: "text.bubble", title: "还没有朋友圈", subtitle: "记录生活，发布第一条动态吧。")
+                            .padding(.vertical, 20)
+                    } else {
+                        ForEach(model.myMoments) { post in
+                            VStack(alignment: .leading, spacing: 9) {
+                                Text(post.text)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Macaron.ink)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(post.date, format: .dateTime.year().month().day().hour().minute())
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Macaron.secondary)
+                            }
+                            .padding(15)
+                            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .contextMenu {
+                                Button("编辑动态", systemImage: "pencil") {
+                                    editingMyMomentID = post.id
+                                    myMomentDraft = post.text
+                                    showMyMomentEditor = true
+                                }
+                                Button("删除动态", systemImage: "trash", role: .destructive) {
+                                    model.myMoments.removeAll { $0.id == post.id }
+                                }
+                            }
+                            .padding(.horizontal, 18)
+                        }
+                    }
+                }
+                .sheet(isPresented: $showMyMomentEditor) {
+                    MomentEditorSheet(
+                        title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
+                        initialText: myMomentDraft
+                    ) { text in
+                        if let id = editingMyMomentID,
+                           let index = model.myMoments.firstIndex(where: { $0.id == id }) {
+                            model.myMoments[index].text = text
+                        } else {
+                            model.myMoments.insert(MomentPost(text: text), at: 0)
+                        }
+                    }
+                }
 
                 VStack(spacing: 0) {
                     SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
@@ -831,29 +1143,19 @@ struct ContentView: View {
                     SettingsRow(symbol: "bell", title: "消息提示音", value: soundOption, tint: Color(hex: 0xE6A5C7)) {
                         showSoundPicker = true
                     }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    Button { showClearConfirmation = true } label: {
+                        SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 4)
-                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .padding(.horizontal, 18)
 
-                VStack(spacing: 0) {
-                    Button { showIdentitySettings = true } label: {
-                        SettingsLine(symbol: "person.crop.circle", title: "编辑双方资料")
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    Button { showClearConfirmation = true } label: {
-                        SettingsLine(symbol: "trash", title: "清空聊天记录", tint: Color(hex: 0xD9829F))
-                    }
-                }
-                .padding(.horizontal, 18)
-                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .padding(.horizontal, 18)
-
-                Text("CustomChat · 本地双身份聊天")
+                Text("CustomChat · 本地社交模拟")
                     .font(.system(size: 11))
                     .foregroundStyle(Macaron.secondary)
-                    .padding(.top, 3)
                     .padding(.bottom, 18)
             }
         }
@@ -999,7 +1301,7 @@ struct ContentView: View {
         .overlay(alignment: .top) { Rectangle().fill(Macaron.line).frame(height: 1) }
     }
 
-    private var settingsSheet: some View {
+    private var myProfileEditor: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
@@ -1010,40 +1312,22 @@ struct ContentView: View {
                         selection: $myAvatarSelection,
                         tint: Macaron.blue
                     )
-                    identityEditor(
-                        title: "对方资料",
-                        name: identityNameBinding(for: .other),
-                        avatarData: model.identity.otherAvatarData,
-                        selection: $otherAvatarSelection,
-                        tint: Macaron.pink
-                    )
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("通话功能说明")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Macaron.ink)
-                        Text("语音和视频通话仅为界面模拟，不会连接系统电话、FaceTime，也不会访问设备摄像头或麦克风。")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Macaron.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(15)
-                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18))
-                    Text("昵称、头像、消息和模拟通话记录均保存在这台设备上。")
+                    Text("这里只编辑你自己的昵称和头像，不会修改任何好友资料。")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
                 }
                 .padding(18)
             }
             .background(Macaron.background)
-            .navigationTitle("个人资料")
+            .navigationTitle("我的资料")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
                         model.persistIdentity()
-                        showIdentitySettings = false
+                        showMyProfileEditor = false
                     }
-                        .fontWeight(.semibold)
+                    .fontWeight(.semibold)
                 }
             }
         }
@@ -1114,9 +1398,17 @@ struct ContentView: View {
 
     private func sendPaymentMessage(kind: ChatMessageKind) {
         guard let amount = Double(paymentAmountDraft), amount > 0 else { return }
-        model.sendPayment(kind: kind, amount: amount, note: paymentNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        let sent = model.sendPayment(
+            kind: kind,
+            amount: amount,
+            note: paymentNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         paymentAmountDraft = ""; paymentNoteDraft = ""
-        playMessageSound()
+        if sent {
+            playMessageSound()
+        } else {
+            showInsufficientBalance = true
+        }
     }
 
     private func playMessageSound() {
@@ -1373,28 +1665,22 @@ private struct MessageRow: View {
     let onImageTap: (Data) -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 9) {
+        HStack(alignment: .center, spacing: 9) {
             if isMe { Spacer(minLength: 58) }
             else { IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.pink) }
 
-            VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
-                messageBubble
-                    .contextMenu {
-                        if !message.isWithdrawn && message.kind == .text {
-                            Button("编辑文本", systemImage: "pencil", action: onEdit)
-                        }
-                        if !message.isWithdrawn {
-                            Button(isMe ? "显示为对方发送" : "显示为我发送", systemImage: "arrow.left.arrow.right", action: onChangeRole)
-                            Button("修改发送时间", systemImage: "clock", action: onChangeTime)
-                            Button("撤回消息", systemImage: "arrow.uturn.backward", role: .destructive, action: onWithdraw)
-                        }
-                        Button("删除消息", systemImage: "trash", role: .destructive, action: onDelete)
+            messageBubble
+                .contextMenu {
+                    if !message.isWithdrawn && message.kind == .text {
+                        Button("编辑文本", systemImage: "pencil", action: onEdit)
                     }
-                Text(message.time, format: .dateTime.hour().minute())
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x8791A3))
-                    .padding(.horizontal, 7)
-            }
+                    if !message.isWithdrawn {
+                        Button(isMe ? "显示为对方发送" : "显示为我发送", systemImage: "arrow.left.arrow.right", action: onChangeRole)
+                        Button("修改发送时间", systemImage: "clock", action: onChangeTime)
+                        Button("撤回消息", systemImage: "arrow.uturn.backward", role: .destructive, action: onWithdraw)
+                    }
+                    Button("删除消息", systemImage: "trash", role: .destructive, action: onDelete)
+                }
 
             if isMe { IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.blue) }
             else { Spacer(minLength: 58) }
@@ -1701,6 +1987,248 @@ private struct SimulatedCallView: View {
         didEnd = true
         let duration = connectedAt.map { max(0, Int(Date.now.timeIntervalSince($0))) } ?? 0
         onEnd(duration)
+    }
+}
+
+
+private struct AddContactSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var bio = ""
+    @State private var avatarSelection: PhotosPickerItem?
+    @State private var avatarData: Data?
+    let onAdd: (String, String, Data?) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("好友资料") {
+                    HStack(spacing: 14) {
+                        IdentityAvatar(data: avatarData, name: name.isEmpty ? "新" : name, size: 62, tint: Macaron.pink)
+                        PhotosPicker(selection: $avatarSelection, matching: .images) {
+                            Label("选择头像", systemImage: "photo")
+                        }
+                    }
+                    TextField("好友昵称", text: $name)
+                    TextField("个性签名（可选）", text: $bio)
+                }
+                Section {
+                    Text("新增好友会建立独立聊天记录，之后可以在好友主页编辑资料和朋友圈。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Macaron.background)
+            .navigationTitle("添加好友")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("添加") {
+                        onAdd(name, bio, avatarData)
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .fontWeight(.semibold)
+                }
+            }
+            .onChange(of: avatarSelection) { _, item in
+                guard let item else { return }
+                Task {
+                    avatarData = try? await item.loadTransferable(type: Data.self)
+                    avatarSelection = nil
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+private struct FriendProfileSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var contact: ChatContact
+    @State private var showMomentEditor = false
+    @State private var momentDraft = ""
+    @State private var editingMomentID: UUID?
+    let onUpdate: (ChatContact) -> Void
+
+    init(contact: ChatContact, onUpdate: @escaping (ChatContact) -> Void) {
+        _contact = State(initialValue: contact)
+        self.onUpdate = onUpdate
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    VStack(spacing: 10) {
+                        IdentityAvatar(data: contact.avatarData, name: contact.name, size: 82, tint: Macaron.pink)
+                        Text(contact.name)
+                            .font(.system(size: 21, weight: .bold))
+                            .foregroundStyle(Macaron.ink)
+                        TextField("好友个性签名", text: $contact.bio, axis: .vertical)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Macaron.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 20)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 22)
+                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("好友笔记")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        TextEditor(text: $contact.notes)
+                            .font(.system(size: 13))
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 90)
+                            .padding(8)
+                            .background(Macaron.background, in: RoundedRectangle(cornerRadius: 14))
+                        Text("这里只是本机保存的好友备注和记录。")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Macaron.secondary)
+                    }
+                    .padding(15)
+                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("他的朋友圈")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Macaron.ink)
+                            Spacer()
+                            Button {
+                                editingMomentID = nil
+                                momentDraft = ""
+                                showMomentEditor = true
+                            } label: {
+                                Label("发布动态", systemImage: "plus")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x4F91D2))
+                            }
+                        }
+                        .padding(.horizontal, 4)
+
+                        if contact.moments.isEmpty {
+                            EmptyHint(symbol: "text.bubble", title: "暂时没有动态", subtitle: "可以在这里记录这位好友的朋友圈内容。")
+                                .padding(.vertical, 20)
+                        } else {
+                            ForEach(contact.moments) { post in
+                                VStack(alignment: .leading, spacing: 9) {
+                                    Text(post.text)
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Macaron.ink)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text(post.date, format: .dateTime.year().month().day().hour().minute())
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(Macaron.secondary)
+                                }
+                                .padding(15)
+                                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .contextMenu {
+                                    Button("编辑动态", systemImage: "pencil") {
+                                        editingMomentID = post.id
+                                        momentDraft = post.text
+                                        showMomentEditor = true
+                                    }
+                                    Button("删除动态", systemImage: "trash", role: .destructive) {
+                                        contact.moments.removeAll { $0.id == post.id }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .background(Macaron.background)
+            .navigationTitle("好友主页")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
+                        onUpdate(contact)
+                        dismiss()
+                    }
+                }
+            }
+            .onChange(of: contact.bio) { _, _ in onUpdate(contact) }
+            .onChange(of: contact.notes) { _, _ in onUpdate(contact) }
+            .sheet(isPresented: $showMomentEditor) {
+                MomentEditorSheet(
+                    title: editingMomentID == nil ? "发布好友动态" : "编辑好友动态",
+                    initialText: momentDraft
+                ) { text in
+                    if let id = editingMomentID,
+                       let index = contact.moments.firstIndex(where: { $0.id == id }) {
+                        contact.moments[index].text = text
+                        contact.moments[index].date = .now
+                    } else {
+                        contact.moments.insert(MomentPost(text: text), at: 0)
+                    }
+                    onUpdate(contact)
+                }
+            }
+            .onChange(of: contact.moments.count) { _, _ in onUpdate(contact) }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+private struct MomentEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    let title: String
+    let onSave: (String) -> Void
+
+    init(title: String, initialText: String, onSave: @escaping (String) -> Void) {
+        self.title = title
+        _text = State(initialValue: initialText)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                TextEditor(text: $text)
+                    .font(.system(size: 16))
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                Text("动态只保存在本机，可以随时再次编辑或删除。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Macaron.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .background(Macaron.background)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !value.isEmpty else { return }
+                        onSave(value)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
