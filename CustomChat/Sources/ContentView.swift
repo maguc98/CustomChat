@@ -102,25 +102,34 @@ struct ContentView: View {
     @State private var otherAvatarSelection: PhotosPickerItem?
     @State private var showContactAlert = false
 
-    private let ink = Color(red: 0.25, green: 0.31, blue: 0.39)
-    private let sky = Color(red: 0.78, green: 0.89, blue: 0.98)
-    private let mint = Color(red: 0.82, green: 0.93, blue: 0.86)
-    private let lavender = Color(red: 0.89, green: 0.85, blue: 0.96)
-    private let peach = Color(red: 1.00, green: 0.89, blue: 0.79)
-    private let rose = Color(red: 0.98, green: 0.86, blue: 0.90)
+    // Deep plum keeps labels readable against the vivid dopamine palette.
+    private let ink = Color(red: 0.19, green: 0.12, blue: 0.31)
+    private let sky = Color(red: 0.30, green: 0.72, blue: 1.00)
+    private let mint = Color(red: 0.28, green: 0.86, blue: 0.65)
+    private let lavender = Color(red: 0.66, green: 0.52, blue: 1.00)
+    private let peach = Color(red: 1.00, green: 0.62, blue: 0.30)
+    private let rose = Color(red: 1.00, green: 0.34, blue: 0.62)
+    private let sunshine = Color(red: 1.00, green: 0.80, blue: 0.27)
 
     var body: some View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.96, green: 0.97, blue: 0.99),
-                    Color(red: 0.94, green: 0.96, blue: 0.98),
-                    Color(red: 0.98, green: 0.95, blue: 0.96)
+                    Color(red: 1.00, green: 0.80, blue: 0.88),
+                    Color(red: 1.00, green: 0.88, blue: 0.65),
+                    Color(red: 0.72, green: 0.88, blue: 1.00),
+                    Color(red: 0.79, green: 0.94, blue: 0.84)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
+            .overlay(alignment: .topTrailing) {
+                Circle().fill(rose.opacity(0.22)).frame(width: 210, height: 210).blur(radius: 38).offset(x: 75, y: -55)
+            }
+            .overlay(alignment: .bottomLeading) {
+                Circle().fill(lavender.opacity(0.24)).frame(width: 230, height: 230).blur(radius: 42).offset(x: -90, y: 70)
+            }
 
             VStack(spacing: 0) {
                 header
@@ -229,11 +238,11 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.name(for: .other))
                     .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundStyle(ink)
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                 Text("CustomChat · 私人聊天空间")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(ink.opacity(0.52))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.88))
             }
 
             Spacer(minLength: 4)
@@ -253,24 +262,35 @@ struct ContentView: View {
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 13)
-        .background(.regularMaterial)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.43, green: 0.29, blue: 0.86),
+                    Color(red: 0.87, green: 0.30, blue: 0.65),
+                    Color(red: 1.00, green: 0.53, blue: 0.34)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .ignoresSafeArea(edges: .top)
+        }
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(.white.opacity(0.72))
+                .fill(Color(red: 1.00, green: 0.83, blue: 0.93).opacity(0.62))
                 .frame(height: 1)
         }
     }
 
     private var dateDivider: some View {
         HStack(spacing: 10) {
-            Capsule().fill(ink.opacity(0.10)).frame(height: 1)
+            Capsule().fill(rose.opacity(0.72)).frame(height: 2)
             Text("今天")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(ink.opacity(0.48))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.white.opacity(0.62), in: Capsule())
-            Capsule().fill(ink.opacity(0.10)).frame(height: 1)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(ink)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 6)
+                .background(sunshine, in: Capsule())
+            Capsule().fill(lavender.opacity(0.75)).frame(height: 2)
         }
         .padding(.horizontal, 42)
     }
@@ -336,13 +356,14 @@ struct ContentView: View {
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 .lineLimit(1)
                         }
-                        .foregroundStyle(ink.opacity(model.activeRole == role ? 0.9 : 0.55))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .foregroundStyle(ink)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
                         .background {
                             Capsule()
-                                .fill(model.activeRole == role ? .white : .white.opacity(0.28))
-                                .shadow(color: .black.opacity(model.activeRole == role ? 0.05 : 0), radius: 5, y: 2)
+                                .fill(model.activeRole == role ? sunshine : (role == .me ? sky.opacity(0.58) : lavender.opacity(0.55)))
+                                .overlay(Capsule().stroke(Color.white.opacity(0.42), lineWidth: 1))
+                                .shadow(color: ink.opacity(model.activeRole == role ? 0.10 : 0), radius: 6, y: 3)
                         }
                     }
                     .buttonStyle(.plain)
@@ -355,9 +376,12 @@ struct ContentView: View {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Image(systemName: "plus")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(ink.opacity(0.72))
+                        .foregroundStyle(.white)
                         .frame(width: 43, height: 46)
-                        .background(peach.opacity(0.78), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                        .background(
+                            LinearGradient(colors: [sky, lavender], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        )
                 }
                 .accessibilityLabel("发送图片")
 
@@ -389,18 +413,29 @@ struct ContentView: View {
                     .padding(.bottom, 6)
                 }
                 .padding(.leading, 15)
-                .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+                .background(Color(red: 1.00, green: 0.94, blue: 0.73), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 21, style: .continuous)
-                        .stroke(.white, lineWidth: 1.2)
+                        .stroke(rose.opacity(0.48), lineWidth: 1.2)
                 }
-                .shadow(color: ink.opacity(0.045), radius: 12, y: 4)
+                .shadow(color: ink.opacity(0.12), radius: 12, y: 4)
             }
         }
         .padding(.horizontal, 15)
         .padding(.top, 12)
         .padding(.bottom, 9)
-        .background(.regularMaterial)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color(red: 1.00, green: 0.78, blue: 0.27),
+                    Color(red: 1.00, green: 0.48, blue: 0.63),
+                    Color(red: 0.67, green: 0.50, blue: 0.96)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private var identitySheet: some View {
@@ -435,7 +470,7 @@ struct ContentView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .padding(14)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                            .background(Color(red: 1.00, green: 0.94, blue: 0.75), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                         Text("语音按钮会拨打手机号，或通过 FaceTime 音频呼叫邮箱；视频按钮会打开 FaceTime。")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(ink.opacity(0.52))
@@ -451,7 +486,7 @@ struct ContentView: View {
                 }
                 .padding(16)
             }
-            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+            .background(LinearGradient(colors: [Color(red: 1.00, green: 0.85, blue: 0.88), Color(red: 0.80, green: 0.87, blue: 1.00)], startPoint: .topLeading, endPoint: .bottomTrailing))
             .navigationTitle("聊天个性化")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -499,7 +534,7 @@ struct ContentView: View {
                     .font(.system(size: 14, design: .rounded))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .background(Color(red: 1.00, green: 0.94, blue: 0.74), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             }
         }
         .padding(15)
@@ -561,9 +596,10 @@ private struct HeaderAction: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(red: 0.29, green: 0.36, blue: 0.44).opacity(0.82))
+                .foregroundStyle(.white)
                 .frame(width: 37, height: 37)
-                .background(tint.opacity(0.72), in: Circle())
+                .background(Color.white.opacity(0.20), in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.38), lineWidth: 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -585,15 +621,15 @@ private struct IdentityAvatar: View {
             } else {
                 ZStack {
                     Circle().fill(tint)
-                    Image(systemName: "person.fill")
-                        .font(.system(size: size * 0.40, weight: .medium))
-                        .foregroundStyle(Color(red: 0.48, green: 0.55, blue: 0.65).opacity(0.7))
+                    Text(String(name.prefix(1)))
+                        .font(.system(size: size * 0.40, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(red: 0.24, green: 0.16, blue: 0.40))
                 }
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 2))
+        .overlay(Circle().stroke(Color(red: 1.00, green: 0.89, blue: 0.68).opacity(0.95), lineWidth: 2))
     }
 }
 
@@ -622,9 +658,11 @@ private struct MessageRow: View {
 
             VStack(alignment: isMe ? .trailing : .leading, spacing: 5) {
                 Text(name)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(ink.opacity(0.48))
-                    .padding(.horizontal, 5)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(ink)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(isMe ? sky.opacity(0.72) : mint.opacity(0.78), in: Capsule())
 
                 VStack(alignment: .leading, spacing: 7) {
                     if let data = message.imageData, let image = UIImage(data: data) {
@@ -637,24 +675,29 @@ private struct MessageRow: View {
 
                     if !message.text.isEmpty {
                         Text(message.text)
-                            .font(.system(size: 15, weight: .regular, design: .rounded))
-                            .foregroundStyle(ink.opacity(0.92))
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(.horizontal, message.imageData == nil ? 14 : 8)
-                .padding(.vertical, message.imageData == nil ? 11 : 8)
+                .padding(.horizontal, message.imageData == nil ? 15 : 8)
+                .padding(.vertical, message.imageData == nil ? 12 : 8)
                 .background(
-                    isMe
-                        ? Color(red: 0.80, green: 0.90, blue: 0.98)
-                        : Color(red: 0.84, green: 0.93, blue: 0.87),
+                    LinearGradient(
+                        colors: isMe
+                            ? [Color(red: 0.29, green: 0.66, blue: 1.00), Color(red: 0.48, green: 0.43, blue: 0.97)]
+                            : [Color(red: 1.00, green: 0.42, blue: 0.58), Color(red: 1.00, green: 0.62, blue: 0.34)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
                     in: RoundedRectangle(cornerRadius: 21, style: .continuous)
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 21, style: .continuous)
-                        .stroke(.white.opacity(0.88), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.38), lineWidth: 1)
                 }
-                .shadow(color: ink.opacity(0.035), radius: 7, y: 3)
+                .frame(maxWidth: 275, alignment: isMe ? .trailing : .leading)
+                .shadow(color: isMe ? sky.opacity(0.26) : rose.opacity(0.26), radius: 9, y: 4)
                 .contextMenu {
                     if !message.text.isEmpty {
                         Button("编辑", systemImage: "pencil", action: onEdit)
@@ -664,7 +707,7 @@ private struct MessageRow: View {
 
                 Text(message.time, format: .dateTime.hour().minute())
                     .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(ink.opacity(0.35))
+                    .foregroundStyle(ink.opacity(0.78))
                     .padding(.horizontal, 5)
             }
 
