@@ -321,11 +321,11 @@ struct ContentView: View {
             } label: {
                 Label("设置昵称和头像", systemImage: "person.crop.circle")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(ink.opacity(0.82))
+                    .foregroundStyle(ink)
                     .padding(.horizontal, 17)
                     .padding(.vertical, 10)
-                    .background(.white.opacity(0.82), in: Capsule())
-                    .overlay(Capsule().stroke(.white, lineWidth: 1))
+                    .background(sunshine, in: Capsule())
+                    .overlay(Capsule().stroke(rose.opacity(0.8), lineWidth: 1))
             }
             .padding(.top, 3)
         }
@@ -337,7 +337,7 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 Text("正在以")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(ink.opacity(0.52))
+                    .foregroundStyle(ink.opacity(0.94))
 
                 ForEach(ChatRole.allCases, id: \.self) { role in
                     Button {
@@ -400,7 +400,7 @@ struct ContentView: View {
                             .frame(width: 34, height: 34)
                             .background(
                                 LinearGradient(
-                                    colors: [Color(red: 0.55, green: 0.75, blue: 0.91), Color(red: 0.66, green: 0.72, blue: 0.91)],
+                                    colors: [rose, lavender],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),
@@ -473,7 +473,7 @@ struct ContentView: View {
                             .background(Color(red: 1.00, green: 0.94, blue: 0.75), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                         Text("语音按钮会拨打手机号，或通过 FaceTime 音频呼叫邮箱；视频按钮会打开 FaceTime。")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(ink.opacity(0.52))
+                            .foregroundStyle(ink.opacity(0.94))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(15)
@@ -599,7 +599,7 @@ private struct HeaderAction: View {
                 .foregroundStyle(.white)
                 .frame(width: 37, height: 37)
                 .background(Color.white.opacity(0.20), in: Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.38), lineWidth: 1)
+                .overlay(Circle().stroke(Color.white.opacity(0.38), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -641,7 +641,7 @@ private struct MessageRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    private let ink = Color(red: 0.25, green: 0.31, blue: 0.39)
+    private let ink = Color(red: 0.19, green: 0.12, blue: 0.31)
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
