@@ -648,6 +648,7 @@ struct ContentView: View {
     @State private var paymentNoteDraft = ""
     @State private var receivedPaymentAmount: Double = 0
     @State private var showReceivedPayment = false
+    @State private var receivingPayment: ChatMessage?
     @State private var timeEditingMessage: ChatMessage?
     @State private var editedMessageTime = Date()
     @State private var myAvatarSelection: PhotosPickerItem?
@@ -704,6 +705,15 @@ struct ContentView: View {
             } else {
                 mainTabView
                     .transition(.opacity)
+            }
+            if let payment = receivingPayment {
+                PaymentReceiveOverlay(message: payment, onReceive: {
+                    _ = model.receivePayment(payment)
+                }, onDismiss: {
+                    receivingPayment = nil
+                })
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(30)
             }
             if let call = activeCall, isCallMinimized {
                 VStack {
@@ -1174,10 +1184,7 @@ struct ContentView: View {
                                     onWithdraw: { model.withdraw(message) },
                                     onImageTap: { data in previewPhoto = SelectedPhoto(data: data) },
                                     onReceiveTransfer: {
-                                        if model.receivePayment(message) {
-                                            receivedPaymentAmount = message.amount ?? 0
-                                            showReceivedPayment = true
-                                        }
+                                        receivingPayment = message
                                     }
                                 )
                                 .id(message.id)
@@ -2425,6 +2432,99 @@ private struct MessageRow: View {
     }
 }
 
+
+private struct PaymentReceiveOverlay: View {
+    let message: ChatMessage
+    let onReceive: () -> Void
+    let onDismiss: () -> Void
+    @State private var didReceive = false
+    @State private var isAnimating = false
+    private var isRedPacket: Bool { message.kind == .redPacket }
+    private var amountText: String { String(format: "%.2f", message.amount ?? 0) }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.48).ignoresSafeArea()
+                .onTapGesture { if didReceive { onDismiss() } }
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.9)).frame(width: 38, height: 38)
+                    }
+                }.padding(.horizontal, 18).padding(.top, 12)
+                Spacer()
+                if isRedPacket {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(LinearGradient(colors: [Color(hex: 0xE85B4F), Color(hex: 0xC93632)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 280, height: 350)
+                            .shadow(color: .black.opacity(0.22), radius: 28, y: 14)
+                        VStack(spacing: 16) {
+                            ZStack {
+                                Circle().fill(Color(hex: 0xF7D88B)).frame(width: 66, height: 66)
+                                Image(systemName: didReceive ? "checkmark" : "gift.fill")
+                                    .font(.system(size: 29, weight: .semibold)).foregroundStyle(Color(hex: 0xA83A30))
+                            }
+                            Text(didReceive ? "已领取红包" : "\(message.senderName ?? "好友")发来的红包")
+                                .font(.system(size: 19, weight: .semibold)).foregroundStyle(Color(hex: 0xFFE8B8))
+                            Text(message.note.isEmpty ? "恭喜发财，大吉大利" : message.note)
+                                .font(.system(size: 14)).foregroundStyle(Color(hex: 0xFFE8B8).opacity(0.92))
+                            if didReceive {
+                                Text("¥" + amountText).font(.system(size: 38, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white).contentTransition(.numericText()).padding(.top, 12)
+                                Text("已存入本机钱包").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0xFFE8B8))
+                            } else {
+                                Button {
+                                    onReceive()
+                                    withAnimation(.spring(response: 0.42, dampingFraction: 0.62)) { didReceive = true; isAnimating = true }
+                                } label: {
+                                    Image(systemName: "gift.fill").font(.system(size: 28, weight: .semibold))
+                                        .foregroundStyle(Color(hex: 0xB83C32)).frame(width: 76, height: 76)
+                                        .background(Color(hex: 0xF7D88B), in: Circle())
+                                }.buttonStyle(.plain).padding(.top, 12)
+                                Text("点击拆开").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0xFFE8B8))
+                            }
+                        }
+                    }
+                    .rotation3DEffect(.degrees(didReceive && isAnimating ? 360 : 0), axis: (x: 0, y: 1, z: 0))
+                } else {
+                    VStack(spacing: 16) {
+                        Image(systemName: didReceive ? "checkmark.circle.fill" : "yensign.circle.fill")
+                            .font(.system(size: 58)).foregroundStyle(didReceive ? Color(hex: 0x77C99A) : Color(hex: 0xE9B66E))
+                            .scaleEffect(isAnimating ? 1.12 : 1)
+                        Text(didReceive ? "收款成功" : "确认收款").font(.system(size: 21, weight: .bold)).foregroundStyle(Macaron.ink)
+                        Text("¥" + amountText).font(.system(size: 36, weight: .bold, design: .rounded))
+                            .foregroundStyle(Macaron.ink).contentTransition(.numericText())
+                        Text(message.note.isEmpty ? "转账" : message.note).font(.system(size: 14)).foregroundStyle(Macaron.secondary)
+                        if didReceive {
+                            Text("已存入本机钱包").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0x55A879))
+                        } else {
+                            Button {
+                                onReceive()
+                                withAnimation(.spring(response: 0.38, dampingFraction: 0.62)) { didReceive = true; isAnimating = true }
+                            } label: {
+                                Text("确认收款").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 14).background(Color(hex: 0xE5A85F), in: Capsule())
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    .padding(28).frame(width: 300)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .shadow(color: .black.opacity(0.2), radius: 28, y: 14)
+                }
+                Spacer()
+                if didReceive {
+                    Button("完成", action: onDismiss).font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Macaron.ink).padding(.horizontal, 38).padding(.vertical, 12)
+                        .background(Color.white, in: Capsule()).padding(.bottom, 24)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
+    }
+}
 
 private struct AddContentMenu: View {
     let onDismiss: () -> Void
