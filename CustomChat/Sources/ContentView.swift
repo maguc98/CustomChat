@@ -1349,7 +1349,7 @@ struct ContentView: View {
                 HStack {
                     Text("朋友圈").font(.system(size: 24, weight: .bold)).foregroundStyle(Macaron.ink)
                     Spacer()
-                    Button { editingMyMomentID = nil; myMomentDraft = ""; showMyMomentEditor = true } label: {
+                    Button { selectedTab = .profile; editingMyMomentID = nil; myMomentDraft = ""; DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { showMyMomentEditor = true } } label: {
                         Label("发布", systemImage: "plus").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
                     }
                 }.padding(.horizontal, 20).padding(.top, 20)
