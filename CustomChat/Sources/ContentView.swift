@@ -5,7 +5,7 @@ import UIKit
 import AVKit
 import UniformTypeIdentifiers
 import AudioToolbox
-import Speech
+import SherpaOnnx
 
 private extension Notification.Name {
     static let customChatScrollToBottom = Notification.Name("customchat.scrollToBottom")
@@ -26,64 +26,192 @@ final class VoiceCaptureManager: ObservableObject {
     @Published private(set) var isPreparing = false
     @Published private(set) var isFinalizing = false
     @Published private(set) var hasCapture = false
+    @Published private(set) var modelStatus = "首次使用将下载约 168 MB 中文模型"
     @Published var transcript = ""
 
     var onFailure: (() -> Void)?
     private let engine = AVAudioEngine()
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var finishWorkItem: DispatchWorkItem?
+    private let inferenceQueue = DispatchQueue(label: "com.maguc98.customchat.sherpa.inference", qos: .userInitiated)
+    private var recognizer: SherpaOnnxRecognizer?
+    private var converter: AVAudioConverter?
+    private var outputFormat: AVAudioFormat?
     private var startedAt: Date?
     private var captured: [Double] = []
+    private var finalizedSentences: [String] = []
+    private var currentPartial = ""
     private var lastDuration: Double = 0
     private var lastWaveform: [Double] = []
     private var smoothedLevel: Double = 0.075
+    private var tapInstalled = false
+
+    private struct ModelFile {
+        let name: String
+        let url: URL
+        let minimumBytes: Int
+    }
+
+    private static var modelDirectory: URL {
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return root.appendingPathComponent("CustomChat/SpeechModel", isDirectory: true)
+    }
+
+    private static let modelFiles = [
+        ModelFile(
+            name: "encoder.int8.onnx",
+            url: URL(string: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main/encoder.int8.onnx")!,
+            minimumBytes: 100_000_000
+        ),
+        ModelFile(
+            name: "decoder.onnx",
+            url: URL(string: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main/decoder.onnx")!,
+            minimumBytes: 1_000_000
+        ),
+        ModelFile(
+            name: "joiner.int8.onnx",
+            url: URL(string: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main/joiner.int8.onnx")!,
+            minimumBytes: 500_000
+        ),
+        ModelFile(
+            name: "tokens.txt",
+            url: URL(string: "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30/resolve/main/tokens.txt")!,
+            minimumBytes: 5_000
+        )
+    ]
 
     func start(onDenied: @escaping () -> Void) {
         guard !isRecording, !isPreparing, !isFinalizing else { return }
-        guard let speechRecognizer, speechRecognizer.isAvailable else {
-            onDenied()
-            return
-        }
         isPreparing = true
-        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] microphoneAllowed in
+        modelStatus = "正在检查本地中文模型…"
+
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
             guard let self else { return }
-            guard microphoneAllowed else {
+            guard granted else {
                 DispatchQueue.main.async {
                     self.isPreparing = false
+                    self.modelStatus = "需要麦克风权限"
                     onDenied()
                 }
                 return
             }
-            SFSpeechRecognizer.requestAuthorization { status in
-                DispatchQueue.main.async {
-                    guard status == .authorized else {
-                        self.isPreparing = false
-                        onDenied()
-                        return
+
+            Task {
+                do {
+                    let paths = try await self.prepareLocalModel()
+                    await MainActor.run {
+                        self.beginCapture(modelPaths: paths)
                     }
-                    self.begin()
+                } catch {
+                    await MainActor.run {
+                        self.isPreparing = false
+                        self.modelStatus = "模型准备失败"
+                        NSLog("CustomChat ASR model error: %@", error.localizedDescription)
+                        onDenied()
+                    }
                 }
             }
         }
     }
 
-    private func begin() {
+    private func prepareLocalModel() async throws -> [String: String] {
+        let fm = FileManager.default
+        try fm.createDirectory(at: Self.modelDirectory, withIntermediateDirectories: true)
+        var paths: [String: String] = [:]
+
+        for (index, item) in Self.modelFiles.enumerated() {
+            let destination = Self.modelDirectory.appendingPathComponent(item.name)
+            let existingSize = (try? fm.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue ?? 0
+
+            if existingSize >= item.minimumBytes {
+                paths[item.name] = destination.path
+                continue
+            }
+
+            await MainActor.run {
+                self.modelStatus = "首次下载中文模型 · \(index + 1)/4"
+            }
+
+            let (temporaryURL, response) = try await URLSession.shared.download(from: item.url)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode) else {
+                throw NSError(domain: "CustomChatASR", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "下载模型文件失败：\(item.name)"
+                ])
+            }
+
+            let downloadedSize = (try? fm.attributesOfItem(atPath: temporaryURL.path)[.size] as? NSNumber)?.intValue ?? 0
+            guard downloadedSize >= item.minimumBytes else {
+                try? fm.removeItem(at: temporaryURL)
+                throw NSError(domain: "CustomChatASR", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "模型文件不完整：\(item.name)"
+                ])
+            }
+
+            if fm.fileExists(atPath: destination.path) {
+                try fm.removeItem(at: destination)
+            }
+            try fm.moveItem(at: temporaryURL, to: destination)
+            paths[item.name] = destination.path
+        }
+
+        return paths
+    }
+
+    private func beginCapture(modelPaths: [String: String]) {
         do {
-            finishWorkItem?.cancel()
-            recognitionTask?.cancel()
-            recognitionTask = nil
-            recognitionRequest = nil
+            let encoder = modelPaths["encoder.int8.onnx"]!
+            let decoder = modelPaths["decoder.onnx"]!
+            let joiner = modelPaths["joiner.int8.onnx"]!
+            let tokens = modelPaths["tokens.txt"]!
+
+            // Build the sherpa-onnx recognizer away from the real-time audio callback.
+            inferenceQueue.sync {
+                var modelConfig = sherpaOnnxOnlineModelConfig(
+                    tokens: tokens,
+                    transducer: sherpaOnnxOnlineTransducerModelConfig(
+                        encoder: encoder,
+                        decoder: decoder,
+                        joiner: joiner
+                    ),
+                    numThreads: 2,
+                    modelType: "zipformer2"
+                )
+                var config = sherpaOnnxOnlineRecognizerConfig(
+                    featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
+                    modelConfig: modelConfig,
+                    enableEndpoint: true,
+                    rule1MinTrailingSilence: 2.0,
+                    rule2MinTrailingSilence: 0.7,
+                    rule3MinUtteranceLength: 20,
+                    decodingMethod: "greedy_search",
+                    maxActivePaths: 4
+                )
+                self.recognizer = SherpaOnnxRecognizer(config: &config)
+                self.recognizer?.reset()
+                self.finalizedSentences = []
+                self.currentPartial = ""
+            }
 
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
 
             let input = engine.inputNode
-            let format = input.outputFormat(forBus: 0)
-            guard format.channelCount > 0 else { throw NSError(domain: "VoiceCapture", code: 1) }
+            let inputFormat = input.outputFormat(forBus: 0)
+            guard inputFormat.channelCount > 0,
+                  let pcm16k = AVAudioFormat(
+                    commonFormat: .pcmFormatFloat32,
+                    sampleRate: 16_000,
+                    channels: 1,
+                    interleaved: false
+                  ),
+                  let audioConverter = AVAudioConverter(from: inputFormat, to: pcm16k) else {
+                throw NSError(domain: "CustomChatASR", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "无法初始化麦克风音频格式"
+                ])
+            }
 
+            converter = audioConverter
+            outputFormat = pcm16k
             captured = []
             lastDuration = 0
             lastWaveform = []
@@ -92,98 +220,133 @@ final class VoiceCaptureManager: ObservableObject {
             smoothedLevel = 0.075
             samples = Array(repeating: 0.075, count: waveformSampleCount)
 
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.shouldReportPartialResults = true
-            request.taskHint = .dictation
-            recognitionRequest = request
-            recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    if let result {
-                        self.transcript = result.bestTranscription.formattedString
+            input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+                guard let self, let converter = self.converter, let outputFormat = self.outputFormat else { return }
+
+                let ratio = outputFormat.sampleRate / buffer.format.sampleRate
+                let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 8
+                guard let converted = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return }
+
+                var suppliedInput = false
+                let inputBlock: AVAudioConverterInputBlock = { _, status in
+                    if suppliedInput {
+                        status.pointee = .noDataNow
+                        return nil
                     }
-                    if result?.isFinal == true || error != nil {
-                        self.finishCapture()
-                    }
+                    suppliedInput = true
+                    status.pointee = .haveData
+                    return buffer
                 }
-            }
 
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-                guard let self, let channel = buffer.floatChannelData?[0] else { return }
-                let count = Int(buffer.frameLength)
-                guard count > 0 else { return }
+                var conversionError: NSError?
+                let conversionStatus = converter.convert(
+                    to: converted,
+                    error: &conversionError,
+                    withInputFrom: inputBlock
+                )
+                guard conversionStatus != .error,
+                      let channel = converted.floatChannelData?[0],
+                      converted.frameLength > 0 else { return }
 
+                let frameCount = Int(converted.frameLength)
+                let audio = Array(UnsafeBufferPointer(start: channel, count: frameCount))
                 var sum: Float = 0
                 var peak: Float = 0
-                for i in 0..<count {
-                    let sample = abs(channel[i])
+                for sample in audio {
+                    let value = abs(sample)
                     sum += sample * sample
-                    peak = max(peak, sample)
+                    peak = max(peak, value)
                 }
 
-                let rms = Double(sqrt(sum / Float(count)))
-                // Lift quiet speech and compress loud peaks for a more even waveform.
+                let rms = Double(sqrt(sum / Float(frameCount)))
                 let amplified = pow(max(rms, Double(peak) * 0.20), 0.62) * 3.6
                 let level = min(1, max(0.075, amplified))
-                self.recognitionRequest?.append(buffer)
 
-                DispatchQueue.main.async {
-                    guard self.isRecording else { return }
-                    let attack = level > self.smoothedLevel ? 0.68 : 0.30
-                    self.smoothedLevel += (level - self.smoothedLevel) * attack
-                    self.samples.append(self.smoothedLevel)
-                    if self.samples.count > waveformSampleCount {
-                        self.samples.removeFirst(self.samples.count - waveformSampleCount)
+                self.inferenceQueue.async {
+                    guard let recognizer = self.recognizer else { return }
+                    recognizer.acceptWaveform(samples: audio, sampleRate: 16_000)
+                    while recognizer.isReady() {
+                        recognizer.decode()
                     }
-                    self.captured.append(self.smoothedLevel)
+
+                    let text = recognizer.getResult().text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if recognizer.isEndpoint() {
+                        if !text.isEmpty { self.finalizedSentences.append(text) }
+                        self.currentPartial = ""
+                        recognizer.reset()
+                    } else {
+                        self.currentPartial = text
+                    }
+
+                    let currentText = (self.finalizedSentences + [self.currentPartial])
+                        .filter { !$0.isEmpty }
+                        .joined()
+                    DispatchQueue.main.async {
+                        guard self.isRecording else { return }
+                        let smoothing = level > self.smoothedLevel ? 0.68 : 0.30
+                        self.smoothedLevel += (level - self.smoothedLevel) * smoothing
+                        self.samples.append(self.smoothedLevel)
+                        if self.samples.count > waveformSampleCount {
+                            self.samples.removeFirst(self.samples.count - waveformSampleCount)
+                        }
+                        self.captured.append(self.smoothedLevel)
+                        self.transcript = currentText
+                    }
                 }
             }
-
+            tapInstalled = true
             engine.prepare()
             try engine.start()
             startedAt = Date()
             isPreparing = false
             isRecording = true
+            modelStatus = "中文离线模型已就绪"
         } catch {
             cleanup()
+            modelStatus = "语音引擎启动失败"
+            NSLog("CustomChat ASR start error: %@", error.localizedDescription)
             onFailure?()
         }
     }
 
-    func stop() {
-        guard isRecording else { return }
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+    @discardableResult
+    func stop() -> Bool {
+        guard isRecording else { return false }
+        engine.stop()
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         isRecording = false
         isFinalizing = true
 
         let duration = max(1, Date().timeIntervalSince(startedAt ?? Date()))
         let source = captured.isEmpty ? Array(repeating: 0.075, count: waveformSampleCount) : captured
-        lastDuration = duration
-        lastWaveform = (0..<waveformSampleCount).map { i -> Double in
-            let a = i * source.count / waveformSampleCount
-            let b = max(a + 1, (i + 1) * source.count / waveformSampleCount)
-            return source[a..<min(b, source.count)].max() ?? 0.075
+        let waveform = (0..<waveformSampleCount).map { index -> Double in
+            let lower = index * source.count / waveformSampleCount
+            let upper = max(lower + 1, (index + 1) * source.count / waveformSampleCount)
+            return source[lower..<min(upper, source.count)].max() ?? 0.075
         }
+
+        // This sync runs after queued audio chunks so the final partial sentence is retained.
+        let finalText = inferenceQueue.sync { () -> String in
+            let partial = recognizer?.getResult().text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !partial.isEmpty && partial != currentPartial {
+                currentPartial = partial
+            }
+            return (finalizedSentences + [currentPartial])
+                .filter { !$0.isEmpty }
+                .joined()
+        }
+
         startedAt = nil
-
-        // Give Speech time to deliver its final transcription after endAudio().
-        recognitionRequest?.endAudio()
-        let fallback = DispatchWorkItem { [weak self] in self?.finishCapture() }
-        finishWorkItem?.cancel()
-        finishWorkItem = fallback
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.35, execute: fallback)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-
-    private func finishCapture() {
-        guard isFinalizing else { return }
-        finishWorkItem?.cancel()
-        finishWorkItem = nil
-        recognitionRequest = nil
-        recognitionTask = nil
+        lastDuration = duration
+        lastWaveform = waveform
+        transcript = finalText
         isFinalizing = false
         hasCapture = true
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        return true
     }
 
     func consumeCapture() -> (duration: Double, waveform: [Double], transcript: String)? {
@@ -197,13 +360,10 @@ final class VoiceCaptureManager: ObservableObject {
 
     private func cleanup() {
         if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        finishWorkItem?.cancel()
-        finishWorkItem = nil
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         isPreparing = false
         isRecording = false
@@ -740,6 +900,7 @@ private final class SimulatedCall: ObservableObject, Identifiable {
     @Published var didEnd = false
     @Published var selectedMedia: PhotosPickerItem?
     @Published var selectedImage: UIImage?
+    @Published var pendingCropImage: UIImage?
     @Published var selectedVideoURL: URL?
     @Published var videoPlayer: AVPlayer?
     @Published var showMediaImportError = false
@@ -752,6 +913,165 @@ private final class SimulatedCall: ObservableObject, Identifiable {
 private struct SelectedPhoto: Identifiable {
     let id = UUID()
     let data: Data
+}
+
+private enum ImageCropShape: Equatable {
+    case circle
+    case roundedSquare
+}
+
+private struct ImageCropRequest: Identifiable {
+    let id = UUID()
+    let image: UIImage
+    let shape: ImageCropShape
+    let onCrop: (UIImage) -> Void
+}
+
+private struct ImageCropCanvas: UIViewRepresentable {
+    let image: UIImage
+    let onReady: (ImageCropScrollView) -> Void
+
+    func makeUIView(context: Context) -> ImageCropScrollView {
+        let view = ImageCropScrollView(image: image)
+        DispatchQueue.main.async { onReady(view) }
+        return view
+    }
+
+    func updateUIView(_ uiView: ImageCropScrollView, context: Context) {}
+}
+
+private final class ImageCropScrollView: UIScrollView, UIScrollViewDelegate {
+    private let sourceImage: UIImage
+    private let imageView: UIImageView
+    private var hasInitialZoom = false
+
+    init(image: UIImage) {
+        let maxDimension = max(image.size.width, image.size.height)
+        let ratio = maxDimension > 0 ? min(1, 2200 / maxDimension) : 1
+        let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        sourceImage = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        imageView = UIImageView()
+        super.init(frame: .zero)
+        imageView.image = sourceImage
+        imageView.frame = CGRect(origin: .zero, size: size)
+        imageView.contentMode = .scaleToFill
+        addSubview(imageView)
+        contentSize = size
+        delegate = self
+        backgroundColor = .clear
+        clipsToBounds = true
+        showsHorizontalScrollIndicator = false
+        showsVerticalScrollIndicator = false
+        bounces = false
+        bouncesZoom = false
+        contentInsetAdjustmentBehavior = .never
+        maximumZoomScale = 6
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard !hasInitialZoom, bounds.width > 0, bounds.height > 0 else { return }
+        let fit = max(bounds.width / sourceImage.size.width, bounds.height / sourceImage.size.height)
+        minimumZoomScale = fit
+        maximumZoomScale = fit * 5
+        setZoomScale(fit, animated: false)
+        contentOffset = CGPoint(
+            x: max(0, (sourceImage.size.width * fit - bounds.width) / 2),
+            y: max(0, (sourceImage.size.height * fit - bounds.height) / 2)
+        )
+        hasInitialZoom = true
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+    func croppedImage() -> UIImage? {
+        let scale = max(zoomScale, 0.0001)
+        let visible = CGRect(
+            x: contentOffset.x / scale,
+            y: contentOffset.y / scale,
+            width: bounds.width / scale,
+            height: bounds.height / scale
+        )
+        let crop = visible.intersection(CGRect(origin: .zero, size: sourceImage.size))
+        guard !crop.isNull, crop.width > 1, crop.height > 1 else { return nil }
+        return UIGraphicsImageRenderer(size: crop.size).image { _ in
+            sourceImage.draw(in: CGRect(
+                x: -crop.minX, y: -crop.minY,
+                width: sourceImage.size.width, height: sourceImage.size.height
+            ))
+        }
+    }
+}
+
+private struct ImageCropperSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var canvas: ImageCropScrollView?
+    let image: UIImage
+    let shape: ImageCropShape
+    let onCancel: () -> Void
+    let onCrop: (UIImage) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                Text(shape == .circle ? "移动和缩放图片，让头像位于圆形范围内。" : "移动和缩放图片，调整圆角正方形画面。")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Macaron.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+
+                GeometryReader { geometry in
+                    let side = min(geometry.size.width - 28, geometry.size.height - 12, 340)
+                    ImageCropCanvas(image: image) { canvas = $0 }
+                        .frame(width: side, height: side)
+                        .clipShape(shape == .circle
+                                   ? AnyShape(Circle())
+                                   : AnyShape(RoundedRectangle(cornerRadius: 38, style: .continuous)))
+                        .overlay {
+                            if shape == .circle {
+                                Circle().stroke(.white, lineWidth: 2)
+                            } else {
+                                RoundedRectangle(cornerRadius: 38, style: .continuous)
+                                    .stroke(.white, lineWidth: 2)
+                            }
+                        }
+                        .shadow(color: .black.opacity(0.13), radius: 18, y: 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                Label("单指拖动 · 双指缩放", systemImage: "hand.draw")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Macaron.secondary)
+                    .padding(.bottom, 18)
+            }
+            .background(Macaron.background)
+            .navigationTitle("调整裁剪")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { onCancel(); dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("使用图片") {
+                        guard let result = canvas?.croppedImage() else { return }
+                        onCrop(result)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(canvas == nil)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
 }
 
 private struct PickedCallVideo: Transferable {
@@ -790,6 +1110,7 @@ struct ContentView: View {
     @State private var walletBalanceDraft = ""
     @State private var editingWalletRole: ChatRole = .me
     @State private var editingWalletContactID: UUID?
+    @State private var imageCropRequest: ImageCropRequest?
     @State private var showMyMomentEditor = false
     @State private var myMomentDraft = ""
     @State private var editingMyMomentID: UUID?
@@ -1455,7 +1776,9 @@ struct ContentView: View {
                     }
                 } else {
                     ForEach(ChatRole.allCases, id: \.self) { role in
-                        Button { withAnimation(.easeOut(duration: 0.16)) { model.activeRole = role } } label: {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.16)) { model.activeRole = role }
+                        } label: {
                             senderIdentityChip(name: model.name(for: role), selected: model.activeRole == role, tint: role == .me ? accentColor : Macaron.pink)
                         }
                         .buttonStyle(.plain)
@@ -1492,14 +1815,12 @@ struct ContentView: View {
                         .foregroundStyle(Color(hex: 0x5799D9))
                         .frame(width: 46, height: 46)
                         .background(accentColor.opacity(0.68), in: Circle())
-                        .clipShape(Circle())
                         .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
-                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("添加聊天内容")
 
-                HStack(spacing: 8) {
+                Group {
                     if isVoiceComposer {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 7) {
@@ -1514,9 +1835,13 @@ struct ContentView: View {
                                     Circle()
                                         .fill(voiceCapture.isRecording ? Color(hex: 0xE87986) : Color(hex: 0x8C98A8))
                                         .frame(width: 6, height: 6)
-                                    Text(voiceCapture.isPreparing ? "正在启动" : voiceCapture.isRecording ? "正在聆听" : voiceCapture.isFinalizing ? "正在整理文字" : voiceCapture.hasCapture ? "识别完成" : "待开始")
+                                    Text(voiceCapture.isPreparing ? voiceCapture.modelStatus :
+                                            voiceCapture.isRecording ? "正在聆听" :
+                                            voiceCapture.isFinalizing ? "正在整理文字" :
+                                            voiceCapture.hasCapture ? "识别完成" : "本地离线识别")
                                         .font(.system(size: 10, weight: .medium))
                                         .foregroundStyle(Macaron.secondary)
+                                        .lineLimit(1)
                                 }
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 5)
@@ -1530,7 +1855,8 @@ struct ContentView: View {
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Macaron.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                .background(Macaron.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color(hex: 0xE6EAF1), lineWidth: 1))
 
                             HStack(spacing: 10) {
                                 Button {
@@ -1550,7 +1876,9 @@ struct ContentView: View {
                                         }
                                         .frame(height: 38)
                                         Spacer(minLength: 0)
-                                        Text(voiceCapture.isRecording ? "点按声纹结束" : voiceCapture.hasCapture ? "重新录制" : "点击开始说话")
+                                        Text(voiceCapture.isPreparing ? "正在准备本地模型" :
+                                                voiceCapture.isRecording ? "点按声纹结束" :
+                                                voiceCapture.hasCapture ? "重新录制" : "点击开始说话")
                                             .font(.system(size: 11, weight: .medium))
                                             .lineLimit(1)
                                     }
@@ -1592,97 +1920,47 @@ struct ContentView: View {
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
-                    }
-                                        voiceCapture.start { showMicrophoneAlert = true }
-                                    }
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        HStack(alignment: .center, spacing: 2) {
-                                            ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
-                                                Capsule().fill(Color(hex: 0x5799D9))
-                                                    .frame(width: 3, height: max(5, CGFloat(value) * 39))
-                                            }
-                                        }
-                                        .frame(height: 40)
-                                        Image(systemName: voiceCapture.isRecording ? "waveform" : "mic.fill")
-                                            .font(.system(size: 13, weight: .semibold))
-                                        Text(voiceCapture.isRecording ? "轻点声纹完成转写" : "点击声纹重新录制")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .lineLimit(1)
-                                    }
-                                    .foregroundStyle(Color(hex: 0x5799D9))
-                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(voiceCapture.isRecording ? "结束语音识别" : "重新录制语音")
-
-                                Button(action: sendVoiceMessage) {
-                                    Image(systemName: "arrow.up")
-                                        .font(.system(size: 17, weight: .semibold))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 34, height: 34)
-                                        .background(accentColor.opacity(0.9), in: Circle())
-                                }
-                                .disabled(!voiceCapture.isRecording && !voiceCapture.hasCapture)
-                                .opacity((voiceCapture.isRecording || voiceCapture.hasCapture) ? 1 : 0.38)
-
-                                Button {
-                                    if voiceCapture.isRecording { _ = voiceCapture.stop() }
-                                    withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
-                                } label: {
-                                    Image(systemName: "keyboard")
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(Color(hex: 0x5799D9))
-                                        .frame(width: 32, height: 32)
-                                        .background(Macaron.blue, in: Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("切换文字输入")
-                            }
-                        }
+                        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Color(hex: 0xE6EAF1), lineWidth: 1))
                     } else {
-                        TextField("输入消息...", text: $draft, axis: .vertical)
-                            .font(.system(size: fontOption == "偏大" ? 16 : 15))
-                            .foregroundStyle(Macaron.ink)
-                            .lineLimit(1...4)
-                            .padding(.vertical, 12)
-                            .focused($messageFocused)
-                            .onSubmit(sendText)
-                        Button {
-                            if isVoiceComposer {
-                                if voiceCapture.isRecording { _ = voiceCapture.stop() }
-                                withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
-                            } else {
+                        HStack(spacing: 8) {
+                            TextField("输入消息...", text: $draft, axis: .vertical)
+                                .font(.system(size: fontOption == "偏大" ? 16 : 15))
+                                .foregroundStyle(Macaron.ink)
+                                .lineLimit(1...4)
+                                .padding(.vertical, 12)
+                                .focused($messageFocused)
+                                .onSubmit(sendText)
+                            Button {
                                 messageFocused = false
-                                isVoiceComposer = true
+                                withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = true }
                                 voiceCapture.start { showMicrophoneAlert = true }
+                            } label: {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(Color(hex: 0x5799D9))
+                                    .frame(width: 34, height: 34)
+                                    .background(Macaron.blue, in: Circle())
                             }
-                        } label: {
-                            Image(systemName: isVoiceComposer ? "keyboard" : "waveform")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x5799D9))
-                                .frame(width: 34, height: 34)
-                                .background(Macaron.blue, in: Circle())
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("开始语音输入")
+                            Button(action: sendText) {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 32, height: 32)
+                                    .background(accentColor.opacity(0.9), in: Circle())
+                            }
+                            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.38 : 1)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(isVoiceComposer ? "切换文字输入" : "开始语音输入")
-                        Button(action: sendText) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 32, height: 32)
-                                .background(accentColor.opacity(0.9), in: Circle())
-                        }
-                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.38 : 1)
+                        .padding(.leading, 17)
+                        .padding(.trailing, 8)
+                        .frame(minHeight: 48)
+                        .background(Macaron.card, in: Capsule())
+                        .overlay(Capsule().stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
                     }
                 }
-                .padding(.leading, 17)
-                .padding(.trailing, 8)
-                .frame(minHeight: 48)
-                .background(Macaron.card, in: RoundedRectangle(cornerRadius: isVoiceComposer ? 22 : 999, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: isVoiceComposer ? 22 : 999, style: .continuous).stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, 15)
@@ -1690,7 +1968,7 @@ struct ContentView: View {
         .padding(.bottom, 8)
         .background(Macaron.card)
         .onDisappear {
-            if voiceCapture.isRecording { _ = voiceCapture.stop() }
+            if voiceCapture.isRecording { voiceCapture.stop() }
         }
     }
 
@@ -2987,7 +3265,7 @@ private struct SimulatedCallView: View {
                     call.videoPlayer?.pause()
                     call.videoPlayer = nil
                     call.selectedVideoURL = nil
-                    call.selectedImage = image
+                    call.pendingCropImage = image
                 }
                 call.selectedMedia = nil
             }
@@ -3003,6 +3281,19 @@ private struct SimulatedCallView: View {
             Button("知道了", role: .cancel) { }
         } message: {
             Text("这张图片或视频暂时无法读取，请换一个文件再试。")
+        }
+        .sheet(isPresented: Binding(
+            get: { call.pendingCropImage != nil },
+            set: { if !$0 { call.pendingCropImage = nil } }
+        )) {
+            if let image = call.pendingCropImage {
+                ImageCropperSheet(image: image, shape: .roundedSquare, onCancel: {
+                    call.pendingCropImage = nil
+                }) { cropped in
+                    call.selectedImage = cropped
+                    call.pendingCropImage = nil
+                }
+            }
         }
         .onAppear {
             call.videoPlayer?.play()
