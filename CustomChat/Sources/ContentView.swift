@@ -1120,39 +1120,39 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 13)
                     .padding(.bottom, 13)
+                    Color.clear
+                        .frame(height: 1)
+                        .id("chat-bottom-anchor")
                 }
                 // Keep the composer anchored above the keyboard. The message list
                 // owns the remaining height and must not dismiss the keyboard
                 // or hide the composer as a side effect of a drag gesture.
                 .scrollDismissesKeyboard(.interactively)
                 .onAppear {
-                    // Wait for the conversation container and its safe-area
-                    // insets to finish settling before calculating the bottom.
-                    // An immediate scroll can use the pre-layout content size
-                    // and leave the whole message stack visibly shifted.
-                    guard let lastID = model.messages.last?.id else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                        proxy.scrollTo(lastID, anchor: .bottom)
+                    // Scroll to a dedicated bottom anchor after SwiftUI has
+                    // completed the first layout pass. A second pass corrects
+                    // late image/text measurements that can shift the stack.
+                    guard !model.messages.isEmpty else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+                        proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(
                     for: UIResponder.keyboardWillChangeFrameNotification
                 )) { _ in
-                    // Wait for SwiftUI to apply the keyboard's new safe-area
-                    // size before scrolling, otherwise the final bubble can
-                    // land underneath the composer or keyboard.
-                    guard let lastID = model.messages.last?.id else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                    guard !model.messages.isEmpty else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
                         withAnimation(.easeOut(duration: 0.20)) {
-                            proxy.scrollTo(lastID, anchor: .bottom)
+                            proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: model.messages.count) { _, _ in
-                    if let last = model.messages.last {
-                        withAnimation(.easeOut(duration: 0.22)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("chat-bottom-anchor", anchor: .bottom)
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .customChatScrollToBottom)) { _ in
