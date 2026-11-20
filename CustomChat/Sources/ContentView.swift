@@ -1131,7 +1131,7 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                     HStack(spacing: 6) {
                         Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
-                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMemberNames(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
+                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
                     }
                 }
                 Spacer()
