@@ -214,6 +214,9 @@ private final class ChatModel: ObservableObject {
     @Published var walletBalance: Double = 1000 {
         didSet { UserDefaults.standard.set(walletBalance, forKey: walletKey) }
     }
+    @Published var otherWalletBalance: Double = 1000 {
+        didSet { UserDefaults.standard.set(otherWalletBalance, forKey: otherWalletKey) }
+    }
 
     private let messagesKey = "customchat.messages.v1"
     private let threadsKey = "customchat.threads.v1"
@@ -222,6 +225,7 @@ private final class ChatModel: ObservableObject {
     private let contactsKey = "customchat.contacts.v1"
     private let myMomentsKey = "customchat.myMoments.v1"
     private let walletKey = "customchat.wallet.balance.v1"
+    private let otherWalletKey = "customchat.wallet.other.balance.v1"
     private var threadMessages: [String: [ChatMessage]] = [:]
     private var isSwitchingThread = false
 
@@ -269,6 +273,9 @@ private final class ChatModel: ObservableObject {
         }
         if let storedBalance = UserDefaults.standard.object(forKey: walletKey) as? Double {
             walletBalance = max(0, storedBalance)
+        }
+        if let storedBalance = UserDefaults.standard.object(forKey: otherWalletKey) as? Double {
+            otherWalletBalance = max(0, storedBalance)
         }
         persistContacts()
         persistCurrentThread()
@@ -347,12 +354,14 @@ private final class ChatModel: ObservableObject {
 
     @discardableResult
     func sendPayment(kind: ChatMessageKind, amount: Double, note: String) -> Bool {
-        guard amount > 0 else { return false }
-        if kind == .transfer {
-            if activeRole == .me {
-                guard walletBalance >= amount else { return false }
-                walletBalance -= amount
-            }
+        guard (kind == .redPacket || kind == .transfer), amount > 0 else { return false }
+        // Maintain a separate local demo balance for each chat identity.
+        if activeRole == .me {
+            guard walletBalance >= amount else { return false }
+            walletBalance -= amount
+        } else {
+            guard otherWalletBalance >= amount else { return false }
+            otherWalletBalance -= amount
         }
         messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note))
         return true
@@ -361,11 +370,13 @@ private final class ChatModel: ObservableObject {
     @discardableResult
     func receivePayment(_ message: ChatMessage) -> Bool {
         guard (message.kind == .redPacket || message.kind == .transfer),
+              message.role != activeRole,
               !message.isReceived,
               let amount = message.amount, amount > 0,
               let index = messages.firstIndex(where: { $0.id == message.id }) else { return false }
-        // The local user's wallet is credited when the other identity sent the payment.
-        if message.role == .other { walletBalance += amount }
+        // Credit only the identity currently receiving the message.
+        if activeRole == .me { walletBalance += amount }
+        else { otherWalletBalance += amount }
         messages[index].isReceived = true
         return true
     }
@@ -378,12 +389,9 @@ private final class ChatModel: ObservableObject {
 
     func update(_ message: ChatMessage, text: String) {
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
-        messages[index].text = text
-        if messages[index].kind == .voice {
-            messages[index].kind = .text
-            messages[index].voiceDuration = 0
-            messages[index].waveform = []
-        }
+        // A voice message keeps its original waveform and duration. The text
+        // field stores the transcript entered by the user.
+        messages[index].text = text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func changeRole(_ message: ChatMessage) {
@@ -874,11 +882,11 @@ struct ContentView: View {
             } message: {
                 Text("此操作会删除本机保存的全部消息和图片，无法撤销。")
             }
-            .alert("编辑消息", isPresented: Binding(
+            .alert(editing?.kind == .voice ? "转为文字" : "编辑消息", isPresented: Binding(
                 get: { editing != nil },
                 set: { if !$0 { editing = nil } }
             )) {
-                TextField("消息内容", text: $editText)
+                TextField(editing?.kind == .voice ? "输入转换后的文字" : "消息内容", text: $editText)
                 Button("取消", role: .cancel) { editing = nil }
                 Button("保存") {
                     if let editing { model.update(editing, text: editText) }
@@ -1045,7 +1053,7 @@ struct ContentView: View {
                                     message: message,
                                     name: message.senderName ?? model.name(for: message.role),
                                     avatarData: model.avatar(for: message.role),
-                                    isMe: message.role == .me,
+                                    isMe: message.role == model.activeRole,
                                     fontSize: messageFontSize,
                                     outgoingColor: accentColor,
                                     onEdit: { editing = message; editText = message.text },
@@ -1371,6 +1379,41 @@ struct ContentView: View {
                     Text("余额仅保存在本机，用于模拟聊天转账。")
                 }
 
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("设置")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 15)
+                        .padding(.top, 12)
+                    VStack(spacing: 0) {
+                    SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
+                        showBackgroundPicker = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    SettingsRow(symbol: "paintpalette", title: "主题色", value: themeOption, tint: Color(hex: 0xC18AD8)) {
+                        showThemePicker = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    SettingsRow(symbol: "textformat.size", title: "字体大小", value: fontOption, tint: Color(hex: 0x83B9EF)) {
+                        showFontPicker = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    SettingsRow(symbol: "bell", title: "消息提示音", value: soundOption, tint: Color(hex: 0xE6A5C7)) {
+                        showSoundPicker = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    Button { showClearConfirmation = true } label: {
+                        SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
+                    }
+                    }
+                    .padding(.horizontal, 15)
+                    .padding(.bottom, 8)
+                }
+                .padding(.vertical, 4)
+                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .padding(.horizontal, 18)
+
                 VStack(spacing: 12) {
                     HStack {
                         Text("我的朋友圈")
@@ -1499,40 +1542,7 @@ struct ContentView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("设置")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 15)
-                        .padding(.top, 12)
-                    VStack(spacing: 0) {
-                    SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
-                        showBackgroundPicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    SettingsRow(symbol: "paintpalette", title: "主题色", value: themeOption, tint: Color(hex: 0xC18AD8)) {
-                        showThemePicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    SettingsRow(symbol: "textformat.size", title: "字体大小", value: fontOption, tint: Color(hex: 0x83B9EF)) {
-                        showFontPicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    SettingsRow(symbol: "bell", title: "消息提示音", value: soundOption, tint: Color(hex: 0xE6A5C7)) {
-                        showSoundPicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    Button { showClearConfirmation = true } label: {
-                        SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
-                    }
-                    }
-                    .padding(.horizontal, 15)
-                    .padding(.bottom, 8)
-                }
-                .padding(.vertical, 4)
-                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .padding(.horizontal, 18)
+
 
                 Text("CustomChat · 本地社交模拟")
                     .font(.system(size: 11))
@@ -2143,7 +2153,7 @@ private struct MessageRow: View {
                         Button("编辑文本", systemImage: "pencil", action: onEdit)
                     }
                     if !message.isWithdrawn && message.kind == .voice {
-                        Button("转为文字", systemImage: "text.alignleft", action: onEdit)
+                        Button(message.text.isEmpty ? "转为文字" : "编辑转换文字", systemImage: "text.alignleft", action: onEdit)
                     }
                     if !message.isWithdrawn {
                         Button(isMe ? "显示为对方发送" : "显示为我发送", systemImage: "arrow.left.arrow.right", action: onChangeRole)
@@ -2201,7 +2211,7 @@ private struct MessageRow: View {
                             .foregroundStyle(Color(hex: 0xB94E42))
                             .padding(.top, 3)
                     } else if message.isReceived {
-                        Text("已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
+                        Text(isMe ? "对方已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")" : "已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
@@ -2224,7 +2234,7 @@ private struct MessageRow: View {
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                             .padding(.top, 3)
                     } else if message.isReceived {
-                        Text("已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
+                        Text(isMe ? "对方已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")" : "已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
@@ -2981,25 +2991,43 @@ private struct VoiceMessageBubble: View {
                 isAnimating = false
             }
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: isAnimating ? "waveform" : "play.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                HStack(alignment: .center, spacing: 2) {
-                    ForEach(Array((message.waveform.isEmpty ? Array(repeating: 0.12, count: 24) : message.waveform).enumerated()), id: \.offset) { _, value in
-                        Capsule().fill(isMe ? Macaron.ink.opacity(0.78) : Color(hex: 0x5799D9))
-                            .frame(width: 2.5, height: max(4, CGFloat(value) * 27))
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 10) {
+                    Image(systemName: isAnimating ? "waveform" : "play.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                    HStack(alignment: .center, spacing: 2) {
+                        ForEach(Array((message.waveform.isEmpty ? Array(repeating: 0.12, count: 24) : message.waveform).enumerated()), id: \.offset) { _, value in
+                            Capsule().fill(isMe ? Macaron.ink.opacity(0.78) : Color(hex: 0x5799D9))
+                                .frame(width: 2.5, height: max(4, CGFloat(value) * 27))
+                        }
+                    }.frame(height: 30)
+                    Text(durationText).font(.system(size: 12, weight: .medium))
+                }
+                if !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("转换成功")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Macaron.secondary)
+                        Text(message.text)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Macaron.ink)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                }.frame(height: 30)
-                Text(durationText).font(.system(size: 12, weight: .medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(Macaron.ink.opacity(0.10)).frame(height: 1)
+                    }
+                }
             }
             .foregroundStyle(Macaron.ink)
             .padding(.horizontal, 14).padding(.vertical, 11)
-            .frame(width: min(245, max(145, 120 + CGFloat(message.voiceDuration) * 5)), alignment: .leading)
+            .frame(width: min(260, max(165, 120 + CGFloat(message.voiceDuration) * 5)), alignment: .leading)
             .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("语音消息，时长\(durationText)，点击播放静音动画")
+        .accessibilityLabel(message.text.isEmpty ? "语音消息，时长\(durationText)，点击播放静音动画" : "语音消息，已转换文字，时长\(durationText)")
     }
 }
 
