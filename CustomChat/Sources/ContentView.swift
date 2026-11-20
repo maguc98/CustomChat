@@ -318,139 +318,176 @@ struct ContentView: View {
     }
 
     var body: some View {
+        preferenceDialogs
+    }
+
+    // Keep the modifier groups small so Swift's type checker does not have to
+    // infer one enormous SwiftUI expression for the entire screen.
+    private var basePresentation: some View {
         pageContent
-        .preferredColorScheme(.light)
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .inactive || phase == .background {
-                model.persistIdentity()
+            .preferredColorScheme(.light)
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .inactive || phase == .background {
+                    model.persistIdentity()
+                }
             }
-        }
-        .sheet(isPresented: $showIdentitySettings) { settingsSheet }
-        .sheet(item: $previewPhoto) { photo in PhotoPreviewView(data: photo.data) }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
-        .confirmationDialog("添加内容", isPresented: $showAddMenu, titleVisibility: .visible) {
-            Button("照片", systemImage: "photo") { showPhotoPicker = true }
-            Button("虚拟红包", systemImage: "gift") {
-                paymentAmountDraft = ""; paymentNoteDraft = "恭喜发财"; showRedPacketInput = true
+            .sheet(isPresented: $showIdentitySettings) { settingsSheet }
+            .sheet(item: $previewPhoto) { photo in
+                PhotoPreviewView(data: photo.data)
             }
-            Button("虚拟转账", systemImage: "yensign.circle") {
-                paymentAmountDraft = ""; paymentNoteDraft = "转账"; showTransferInput = true
+            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
+    }
+
+    private var paymentPresentation: some View {
+        basePresentation
+            .confirmationDialog("添加内容", isPresented: $showAddMenu, titleVisibility: .visible) {
+                Button("照片", systemImage: "photo") { showPhotoPicker = true }
+                Button("虚拟红包", systemImage: "gift") {
+                    paymentAmountDraft = ""
+                    paymentNoteDraft = "恭喜发财"
+                    showRedPacketInput = true
+                }
+                Button("虚拟转账", systemImage: "yensign.circle") {
+                    paymentAmountDraft = ""
+                    paymentNoteDraft = "转账"
+                    showTransferInput = true
+                }
+                Button("取消", role: .cancel) {}
             }
-            Button("取消", role: .cancel) {}
-        }
-        .alert("创建虚拟红包", isPresented: $showRedPacketInput) {
-            TextField("金额，例如 8.88", text: $paymentAmountDraft).keyboardType(.decimalPad)
-            TextField("红包标题", text: $paymentNoteDraft)
-            Button("取消", role: .cancel) {}
-            Button("发送") { sendPaymentMessage(kind: .redPacket) }
-        } message: { Text("仅用于聊天界面演示，不涉及真实支付。") }
-        .alert("创建虚拟转账", isPresented: $showTransferInput) {
-            TextField("金额，例如 66.00", text: $paymentAmountDraft).keyboardType(.decimalPad)
-            TextField("转账说明", text: $paymentNoteDraft)
-            Button("取消", role: .cancel) {}
-            Button("发送") { sendPaymentMessage(kind: .transfer) }
-        } message: { Text("仅用于聊天界面演示，不涉及真实资金交易。") }
-        .sheet(isPresented: Binding(get: { timeEditingMessage != nil }, set: { if !$0 { timeEditingMessage = nil } })) {
-            NavigationStack {
-                Form { DatePicker("发送时间", selection: $editedMessageTime, displayedComponents: [.date, .hourAndMinute]) }
+            .alert("创建虚拟红包", isPresented: $showRedPacketInput) {
+                TextField("金额，例如 8.88", text: $paymentAmountDraft).keyboardType(.decimalPad)
+                TextField("红包标题", text: $paymentNoteDraft)
+                Button("取消", role: .cancel) {}
+                Button("发送") { sendPaymentMessage(kind: .redPacket) }
+            } message: {
+                Text("仅用于聊天界面演示，不涉及真实支付。")
+            }
+            .alert("创建虚拟转账", isPresented: $showTransferInput) {
+                TextField("金额，例如 66.00", text: $paymentAmountDraft).keyboardType(.decimalPad)
+                TextField("转账说明", text: $paymentNoteDraft)
+                Button("取消", role: .cancel) {}
+                Button("发送") { sendPaymentMessage(kind: .transfer) }
+            } message: {
+                Text("仅用于聊天界面演示，不涉及真实资金交易。")
+            }
+            .sheet(isPresented: Binding(
+                get: { timeEditingMessage != nil },
+                set: { if !$0 { timeEditingMessage = nil } }
+            )) {
+                NavigationStack {
+                    Form {
+                        DatePicker("发送时间", selection: $editedMessageTime, displayedComponents: [.date, .hourAndMinute])
+                    }
                     .navigationTitle("修改消息时间")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("取消") { timeEditingMessage = nil } }
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("取消") { timeEditingMessage = nil }
+                        }
                         ToolbarItem(placement: .confirmationAction) {
                             Button("保存") {
-                                if let message = timeEditingMessage { model.updateTime(message, time: editedMessageTime) }
+                                if let message = timeEditingMessage {
+                                    model.updateTime(message, time: editedMessageTime)
+                                }
                                 timeEditingMessage = nil
                             }
                         }
                     }
-            }
-            .presentationDetents([.medium])
-        }
-        .fullScreenCover(item: $activeCall) { call in
-            SimulatedCallView(
-                name: model.name(for: .other),
-                meName: model.name(for: .me),
-                avatarData: model.identity.otherAvatarData,
-                isVideo: call.isVideo
-            ) { duration in
-                model.addCall(isVideo: call.isVideo, duration: duration)
-                activeCall = nil
-            }
-        }
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let compact = compactImageData(data) {
-                    model.sendImage(compact)
-                    playMessageSound()
                 }
-                selectedPhoto = nil
+                .presentationDetents([.medium])
             }
-        }
-        .onChange(of: myAvatarSelection) { _, item in
-            guard let item else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let compact = compactImageData(data) {
-                    model.updateAvatar(for: .me, data: compact)
-                }
-                myAvatarSelection = nil
-            }
-        }
-        .onChange(of: otherAvatarSelection) { _, item in
-            guard let item else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let compact = compactImageData(data) {
-                    model.updateAvatar(for: .other, data: compact)
-                }
-                otherAvatarSelection = nil
-            }
-        }
-        .confirmationDialog("聊天背景", isPresented: $showBackgroundPicker, titleVisibility: .visible) {
-            ForEach(["雾蓝白", "奶油白", "淡粉", "薄荷绿"], id: \.self) { option in
-                Button(option) { backgroundOption = option }
-            }
-        }
-        .confirmationDialog("主题颜色", isPresented: $showThemePicker, titleVisibility: .visible) {
-            ForEach(["浅蓝", "樱花粉", "薄荷绿", "薰衣草紫"], id: \.self) { option in
-                Button(option) { themeOption = option }
-            }
-        }
-        .confirmationDialog("字体大小", isPresented: $showFontPicker, titleVisibility: .visible) {
-            ForEach(["偏小", "标准", "偏大"], id: \.self) { option in
-                Button(option) { fontOption = option }
-            }
-        }
-        .confirmationDialog("消息提示音", isPresented: $showSoundPicker, titleVisibility: .visible) {
-            ForEach(["轻柔", "清脆", "关闭"], id: \.self) { option in
-                Button(option) {
-                    soundOption = option
-                    if option != "关闭" { playPreviewSound() }
+            .fullScreenCover(item: $activeCall) { call in
+                SimulatedCallView(
+                    name: model.name(for: .other),
+                    meName: model.name(for: .me),
+                    avatarData: model.identity.otherAvatarData,
+                    isVideo: call.isVideo
+                ) { duration in
+                    model.addCall(isVideo: call.isVideo, duration: duration)
+                    activeCall = nil
                 }
             }
-        }
-        .alert("清空聊天记录？", isPresented: $showClearConfirmation) {
-            Button("取消", role: .cancel) {}
-            Button("清空", role: .destructive) {
-                model.messages.removeAll()
+    }
+
+    private var photoHandlingPresentation: some View {
+        paymentPresentation
+            .onChange(of: selectedPhoto) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let compact = compactImageData(data) {
+                        model.sendImage(compact)
+                        playMessageSound()
+                    }
+                    selectedPhoto = nil
+                }
             }
-        } message: {
-            Text("此操作会删除本机保存的全部消息和图片，无法撤销。")
-        }
-        .alert("编辑消息", isPresented: Binding(
-            get: { editing != nil },
-            set: { if !$0 { editing = nil } }
-        )) {
-            TextField("消息内容", text: $editText)
-            Button("取消", role: .cancel) { editing = nil }
-            Button("保存") {
-                if let editing { model.update(editing, text: editText) }
-                editing = nil
+            .onChange(of: myAvatarSelection) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let compact = compactImageData(data) {
+                        model.updateAvatar(for: .me, data: compact)
+                    }
+                    myAvatarSelection = nil
+                }
             }
-        }
+            .onChange(of: otherAvatarSelection) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let compact = compactImageData(data) {
+                        model.updateAvatar(for: .other, data: compact)
+                    }
+                    otherAvatarSelection = nil
+                }
+            }
+    }
+
+    private var preferenceDialogs: some View {
+        photoHandlingPresentation
+            .confirmationDialog("聊天背景", isPresented: $showBackgroundPicker, titleVisibility: .visible) {
+                ForEach(["雾蓝白", "奶油白", "淡粉", "薄荷绿"], id: \.self) { option in
+                    Button(option) { backgroundOption = option }
+                }
+            }
+            .confirmationDialog("主题颜色", isPresented: $showThemePicker, titleVisibility: .visible) {
+                ForEach(["浅蓝", "樱花粉", "薄荷绿", "薰衣草紫"], id: \.self) { option in
+                    Button(option) { themeOption = option }
+                }
+            }
+            .confirmationDialog("字体大小", isPresented: $showFontPicker, titleVisibility: .visible) {
+                ForEach(["偏小", "标准", "偏大"], id: \.self) { option in
+                    Button(option) { fontOption = option }
+                }
+            }
+            .confirmationDialog("消息提示音", isPresented: $showSoundPicker, titleVisibility: .visible) {
+                ForEach(["轻柔", "清脆", "关闭"], id: \.self) { option in
+                    Button(option) {
+                        soundOption = option
+                        if option != "关闭" { playPreviewSound() }
+                    }
+                }
+            }
+            .alert("清空聊天记录？", isPresented: $showClearConfirmation) {
+                Button("取消", role: .cancel) {}
+                Button("清空", role: .destructive) {
+                    model.messages.removeAll()
+                }
+            } message: {
+                Text("此操作会删除本机保存的全部消息和图片，无法撤销。")
+            }
+            .alert("编辑消息", isPresented: Binding(
+                get: { editing != nil },
+                set: { if !$0 { editing = nil } }
+            )) {
+                TextField("消息内容", text: $editText)
+                Button("取消", role: .cancel) { editing = nil }
+                Button("保存") {
+                    if let editing { model.update(editing, text: editText) }
+                    editing = nil
+                }
+            }
     }
 
     private var mainTabView: some View {
@@ -1595,4 +1632,3 @@ private extension Color {
         )
     }
 }
-
