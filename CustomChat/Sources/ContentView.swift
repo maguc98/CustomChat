@@ -27,15 +27,16 @@ struct ChatMessage: Identifiable, Codable {
     var note: String
     var isWithdrawn: Bool
     var isReceived: Bool
+    var senderName: String?
 
     init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil,
-         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false) {
+         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil) {
         id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
         self.kind = kind ?? (imageData == nil ? .text : .image)
-        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived
+        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName
     }
 
-    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived }
+    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -49,6 +50,7 @@ struct ChatMessage: Identifiable, Codable {
         note = try values.decodeIfPresent(String.self, forKey: .note) ?? ""
         isWithdrawn = try values.decodeIfPresent(Bool.self, forKey: .isWithdrawn) ?? false
         isReceived = try values.decodeIfPresent(Bool.self, forKey: .isReceived) ?? false
+        senderName = try values.decodeIfPresent(String.self, forKey: .senderName)
     }
 }
 
@@ -96,15 +98,19 @@ struct ChatContact: Identifiable, Codable {
     var bio: String
     var notes: String
     var moments: [MomentPost]
+    var isGroup: Bool?
+    var memberIDs: [UUID]?
 
     init(id: UUID = UUID(), name: String, avatarData: Data? = nil,
-         bio: String = "分享生活，记录日常。", notes: String = "", moments: [MomentPost] = []) {
+         bio: String = "分享生活，记录日常。", notes: String = "", moments: [MomentPost] = [], isGroup: Bool = false, memberIDs: [UUID] = []) {
         self.id = id
         self.name = name
         self.avatarData = avatarData
         self.bio = bio
         self.notes = notes
         self.moments = moments
+        self.isGroup = isGroup
+        self.memberIDs = memberIDs
     }
 }
 
@@ -208,6 +214,18 @@ private final class ChatModel: ObservableObject {
         return contact.id
     }
 
+    func addGroup(name: String, memberIDs: [UUID]) -> UUID {
+        let members = contacts.filter { memberIDs.contains($0.id) && $0.isGroup != true }
+        let group = ChatContact(name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "群聊" : name, bio: "\(members.count) 位好友的群聊", isGroup: true, memberIDs: members.map(\.id))
+        contacts.insert(group, at: 0)
+        selectContact(group.id)
+        return group.id
+    }
+
+    func groupMemberNames(_ contact: ChatContact) -> [String] {
+        (contact.memberIDs ?? []).compactMap { id in contacts.first(where: { $0.id == id })?.name }
+    }
+
     func updateContact(_ updated: ChatContact) {
         guard let index = contacts.firstIndex(where: { $0.id == updated.id }) else { return }
         contacts[index] = updated
@@ -229,7 +247,7 @@ private final class ChatModel: ObservableObject {
     func send(_ text: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        messages.append(ChatMessage(text: value, role: activeRole))
+        messages.append(ChatMessage(text: value, role: activeRole, senderName: activeRole == .other && currentContact?.isGroup == true ? (currentContact.flatMap { groupMemberNames($0).first } ?? "群成员") : nil))
     }
 
     func sendImage(_ data: Data) {
@@ -383,14 +401,14 @@ private final class ChatModel: ObservableObject {
 private enum AppTab: String, CaseIterable {
     case chats = "聊天"
     case calls = "通话"
-    case album = "相册"
+    case album = "朋友圈"
     case profile = "我的"
 
     var symbol: String {
         switch self {
         case .chats: return "bubble.left.and.bubble.right"
         case .calls: return "phone"
-        case .album: return "photo"
+        case .album: return "text.bubble"
         case .profile: return "person"
         }
     }
@@ -426,6 +444,8 @@ struct ContentView: View {
     @State private var showConversation = false
     @State private var showMyProfileEditor = false
     @State private var showAddContact = false
+    @State private var showCreateGroup = false
+    @State private var showVoiceInput = false
     @State private var showFriendProfile = false
     @State private var showChatSettings = false
     @FocusState private var messageFocused: Bool
@@ -519,6 +539,16 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showMyProfileEditor) { myProfileEditor }
             .sheet(isPresented: $showChatSettings) { chatSettingsSheet }
+            .sheet(isPresented: $showCreateGroup) {
+                CreateGroupSheet(contacts: model.contacts.filter { $0.isGroup != true }) { name, ids in
+                    let id = model.addGroup(name: name, memberIDs: ids)
+                    model.selectContact(id)
+                    showConversation = true
+                }
+            }
+            .sheet(isPresented: $showVoiceInput) {
+                SimulatedVoiceInputSheet { value in draft = value }
+            }
             .sheet(isPresented: $showAddContact) {
                 AddContactSheet { name, bio, avatarData in
                     model.addContact(name: name, bio: bio, avatarData: avatarData)
@@ -715,7 +745,7 @@ struct ContentView: View {
                 switch selectedTab {
                 case .chats: chatListView
                 case .calls: callsView
-                case .album: albumView
+                case .album: momentsFeedView
                 case .profile: profileView
                 }
             }
@@ -731,7 +761,10 @@ struct ContentView: View {
                     .tracking(-0.8)
                     .foregroundStyle(Macaron.ink)
                 Spacer()
-                Button { showAddContact = true } label: {
+                Menu {
+                    Button("添加好友", systemImage: "person.badge.plus") { showAddContact = true }
+                    Button("创建群聊", systemImage: "person.3") { showCreateGroup = true }
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 19, weight: .medium))
                         .foregroundStyle(Color(hex: 0x438FDC))
@@ -814,14 +847,14 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                         .frame(width: 30, height: 42)
                 }
-                Button { showFriendProfile = true } label: { IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink) }.buttonStyle(.plain)
+                Button { if model.currentContact?.isGroup == true { showCreateGroup = true } else { showFriendProfile = true } } label: { IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink) }.buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.name(for: .other))
+                    Text(model.currentContact?.name ?? model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Macaron.ink)
                     HStack(spacing: 6) {
                         Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
-                        Text("本地模拟聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
+                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMemberNames(model.currentContact!).count) 位好友 · 本地模拟" : "本地模拟聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
                     }
                 }
                 Spacer()
@@ -862,7 +895,7 @@ struct ContentView: View {
                             ForEach(model.messages) { message in
                                 MessageRow(
                                     message: message,
-                                    name: model.name(for: message.role),
+                                    name: message.senderName ?? model.name(for: message.role),
                                     avatarData: model.avatar(for: message.role),
                                     isMe: message.role == .me,
                                     fontSize: messageFontSize,
@@ -1001,6 +1034,16 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("添加聊天内容")
+
+                Button { messageFocused = false; showVoiceInput = true } label: {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x5799D9))
+                        .frame(width: 40, height: 46)
+                        .background(Macaron.blue, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("模拟语音输入")
 
                 HStack(spacing: 8) {
                     TextField("输入消息...", text: $draft, axis: .vertical)
@@ -1297,6 +1340,36 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 20)
             }
+        }
+    }
+
+    private var momentsFeedView: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("朋友圈").font(.system(size: 24, weight: .bold)).foregroundStyle(Macaron.ink)
+                    Spacer()
+                    Button { editingMyMomentID = nil; myMomentDraft = ""; showMyMomentEditor = true } label: {
+                        Label("发布", systemImage: "plus").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
+                    }
+                }.padding(.horizontal, 20).padding(.top, 20)
+                let feed = (model.myMoments.map { ("我", model.identity.meAvatarData, $0) } + model.contacts.filter { $0.isGroup != true }.flatMap { contact in contact.moments.map { (contact.name, contact.avatarData, $0) } }).sorted { $0.2.date > $1.2.date }
+                if feed.isEmpty {
+                    EmptyHint(symbol: "text.bubble", title: "朋友圈还很安静", subtitle: "发布自己的动态，或到好友主页查看他们的分享。").padding(.top, 80)
+                } else {
+                    ForEach(feed, id: \.2.id) { item in
+                        HStack(alignment: .top, spacing: 12) {
+                            IdentityAvatar(data: item.1, name: item.0, size: 42, tint: Macaron.blue)
+                            VStack(alignment: .leading, spacing: 9) {
+                                Text(item.0).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
+                                if !item.2.text.isEmpty { Text(item.2.text).font(.system(size: 14)).foregroundStyle(Macaron.ink) }
+                                if let data = item.2.mediaData { MomentMediaView(data: data, mediaType: item.2.mediaType) }
+                                Text(item.2.date, format: .dateTime.year().month().day().hour().minute()).font(.system(size: 10)).foregroundStyle(Macaron.secondary)
+                            }
+                        }.padding(15).background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous)).padding(.horizontal, 16)
+                    }
+                }
+            }.padding(.bottom, 20)
         }
     }
 
