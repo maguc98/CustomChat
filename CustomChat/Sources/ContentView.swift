@@ -25,7 +25,7 @@ private struct ChatIdentity: Codable {
 }
 
 @MainActor
-final class ChatModel: ObservableObject {
+private final class ChatModel: ObservableObject {
     @Published var messages: [ChatMessage] = [] { didSet { save() } }
     @Published var activeRole: ChatRole = .me
     @Published var identity = ChatIdentity() { didSet { save() } }
