@@ -8,19 +8,39 @@ enum ChatRole: String, CaseIterable, Codable {
     case me = "我"
 }
 
+enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer }
+
 struct ChatMessage: Identifiable, Codable {
     var id: UUID
     var text: String
     var role: ChatRole
     var time: Date
     var imageData: Data?
+    var kind: ChatMessageKind
+    var amount: Double?
+    var note: String
+    var isWithdrawn: Bool
 
-    init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil) {
-        self.id = UUID()
-        self.text = text
-        self.role = role
-        self.time = time
-        self.imageData = imageData
+    init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil,
+         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false) {
+        id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
+        self.kind = kind ?? (imageData == nil ? .text : .image)
+        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn
+    }
+
+    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        text = try values.decodeIfPresent(String.self, forKey: .text) ?? ""
+        role = try values.decode(ChatRole.self, forKey: .role)
+        time = try values.decode(Date.self, forKey: .time)
+        imageData = try values.decodeIfPresent(Data.self, forKey: .imageData)
+        kind = try values.decodeIfPresent(ChatMessageKind.self, forKey: .kind) ?? (imageData == nil ? .text : .image)
+        amount = try values.decodeIfPresent(Double.self, forKey: .amount)
+        note = try values.decodeIfPresent(String.self, forKey: .note) ?? ""
+        isWithdrawn = try values.decodeIfPresent(Bool.self, forKey: .isWithdrawn) ?? false
     }
 }
 
@@ -78,12 +98,36 @@ private final class ChatModel: ObservableObject {
     }
 
     func sendImage(_ data: Data) {
-        messages.append(ChatMessage(role: activeRole, imageData: data))
+        messages.append(ChatMessage(role: activeRole, imageData: data, kind: .image))
+    }
+
+    func sendPayment(kind: ChatMessageKind, amount: Double, note: String) {
+        messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note))
     }
 
     func update(_ message: ChatMessage, text: String) {
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         messages[index].text = text
+    }
+
+    func changeRole(_ message: ChatMessage) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        messages[index].role = messages[index].role == .me ? .other : .me
+    }
+
+    func updateTime(_ message: ChatMessage, time: Date) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        messages[index].time = time
+        messages.sort { $0.time < $1.time }
+    }
+
+    func withdraw(_ message: ChatMessage) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        messages[index].isWithdrawn = true
+        messages[index].text = ""
+        messages[index].imageData = nil
+        messages[index].amount = nil
+        messages[index].note = ""
     }
 
     func delete(_ message: ChatMessage) {
@@ -177,6 +221,14 @@ struct ContentView: View {
     @State private var draft = ""
     @State private var isComposerVisible = true
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showPhotoPicker = false
+    @State private var showAddMenu = false
+    @State private var showRedPacketInput = false
+    @State private var showTransferInput = false
+    @State private var paymentAmountDraft = ""
+    @State private var paymentNoteDraft = ""
+    @State private var timeEditingMessage: ChatMessage?
+    @State private var editedMessageTime = Date()
     @State private var myAvatarSelection: PhotosPickerItem?
     @State private var otherAvatarSelection: PhotosPickerItem?
     @State private var editing: ChatMessage?
@@ -233,8 +285,46 @@ struct ContentView: View {
         }
         .preferredColorScheme(.light)
         .sheet(isPresented: $showIdentitySettings) { settingsSheet }
-        .sheet(item: $previewPhoto) { photo in
-            PhotoPreviewView(data: photo.data)
+        .sheet(item: $previewPhoto) { photo in PhotoPreviewView(data: photo.data) }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
+        .confirmationDialog("添加内容", isPresented: $showAddMenu, titleVisibility: .visible) {
+            Button("照片", systemImage: "photo") { showPhotoPicker = true }
+            Button("虚拟红包", systemImage: "gift") {
+                paymentAmountDraft = ""; paymentNoteDraft = "恭喜发财"; showRedPacketInput = true
+            }
+            Button("虚拟转账", systemImage: "yensign.circle") {
+                paymentAmountDraft = ""; paymentNoteDraft = "转账"; showTransferInput = true
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .alert("创建虚拟红包", isPresented: $showRedPacketInput) {
+            TextField("金额，例如 8.88", text: $paymentAmountDraft).keyboardType(.decimalPad)
+            TextField("红包标题", text: $paymentNoteDraft)
+            Button("取消", role: .cancel) {}
+            Button("发送") { sendPaymentMessage(kind: .redPacket) }
+        } message: { Text("仅用于聊天界面演示，不涉及真实支付。") }
+        .alert("创建虚拟转账", isPresented: $showTransferInput) {
+            TextField("金额，例如 66.00", text: $paymentAmountDraft).keyboardType(.decimalPad)
+            TextField("转账说明", text: $paymentNoteDraft)
+            Button("取消", role: .cancel) {}
+            Button("发送") { sendPaymentMessage(kind: .transfer) }
+        } message: { Text("仅用于聊天界面演示，不涉及真实资金交易。") }
+        .sheet(isPresented: Binding(get: { timeEditingMessage != nil }, set: { if !$0 { timeEditingMessage = nil } })) {
+            NavigationStack {
+                Form { DatePicker("发送时间", selection: $editedMessageTime, displayedComponents: [.date, .hourAndMinute]) }
+                    .navigationTitle("修改消息时间")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("取消") { timeEditingMessage = nil } }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("保存") {
+                                if let message = timeEditingMessage { model.updateTime(message, time: editedMessageTime) }
+                                timeEditingMessage = nil
+                            }
+                        }
+                    }
+            }
+            .presentationDetents([.medium])
         }
         .fullScreenCover(item: $activeCall) { call in
             SimulatedCallView(
@@ -476,6 +566,9 @@ struct ContentView: View {
                                     outgoingColor: accentColor,
                                     onEdit: { editing = message; editText = message.text },
                                     onDelete: { model.delete(message) },
+                                    onChangeRole: { model.changeRole(message) },
+                                    onChangeTime: { editedMessageTime = message.time; timeEditingMessage = message },
+                                    onWithdraw: { model.withdraw(message) },
                                     onImageTap: { data in previewPhoto = SelectedPhoto(data: data) }
                                 )
                                 .id(message.id)
@@ -557,14 +650,14 @@ struct ContentView: View {
             }
 
             HStack(spacing: 11) {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                Button { showAddMenu = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 21, weight: .medium))
                         .foregroundStyle(Color(hex: 0x5799D9))
                         .frame(width: 46, height: 46)
                         .background(accentColor.opacity(0.68), in: Circle())
                 }
-                .accessibilityLabel("发送图片")
+                .accessibilityLabel("添加聊天内容")
 
                 HStack(spacing: 8) {
                     TextField("输入消息...", text: $draft, axis: .vertical)
@@ -916,6 +1009,13 @@ struct ContentView: View {
         if model.messages.count > previousCount { playMessageSound() }
     }
 
+    private func sendPaymentMessage(kind: ChatMessageKind) {
+        guard let amount = Double(paymentAmountDraft), amount > 0 else { return }
+        model.sendPayment(kind: kind, amount: amount, note: paymentNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        paymentAmountDraft = ""; paymentNoteDraft = ""
+        playMessageSound()
+    }
+
     private func playMessageSound() {
         guard soundOption != "关闭" else { return }
         AudioServicesPlaySystemSound(soundOption == "清脆" ? 1104 : 1103)
@@ -1158,75 +1258,86 @@ private struct MessageRow: View {
     let outgoingColor: Color
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onChangeRole: () -> Void
+    let onChangeTime: () -> Void
+    let onWithdraw: () -> Void
     let onImageTap: (Data) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 9) {
-            if isMe {
-                Spacer(minLength: 58)
-            } else {
-                IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.pink)
-            }
+            if isMe { Spacer(minLength: 58) }
+            else { IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.pink) }
 
             VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
                 messageBubble
                     .contextMenu {
-                        if !message.text.isEmpty {
-                            Button("编辑", systemImage: "pencil", action: onEdit)
+                        if !message.isWithdrawn && message.kind == .text {
+                            Button("编辑文本", systemImage: "pencil", action: onEdit)
                         }
-                        Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
+                        if !message.isWithdrawn {
+                            Button(isMe ? "显示为对方发送" : "显示为我发送", systemImage: "arrow.left.arrow.right", action: onChangeRole)
+                            Button("修改发送时间", systemImage: "clock", action: onChangeTime)
+                            Button("撤回消息", systemImage: "arrow.uturn.backward", role: .destructive, action: onWithdraw)
+                        }
+                        Button("删除消息", systemImage: "trash", role: .destructive, action: onDelete)
                     }
-
                 Text(message.time, format: .dateTime.hour().minute())
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color(hex: 0x8791A3))
                     .padding(.horizontal, 7)
             }
 
-            if isMe {
-                IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.blue)
-            } else {
-                Spacer(minLength: 58)
-            }
+            if isMe { IdentityAvatar(data: avatarData, name: name, size: 33, tint: Macaron.blue) }
+            else { Spacer(minLength: 58) }
         }
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
-    private var messageBubble: some View {
-        if let data = message.imageData, let image = UIImage(data: data) {
-            Button { onImageTap(data) } label: {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 285, maxHeight: 270)
-                    .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
-                    .padding(7)
-                    .background(
-                        isMe ? outgoingColor.opacity(0.78) : Macaron.card,
-                        in: RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 25, style: .continuous)
-                            .stroke(Color.white.opacity(0.95), lineWidth: 1.4)
-                    )
+    @ViewBuilder private var messageBubble: some View {
+        if message.isWithdrawn {
+            Text("你撤回了一条消息")
+                .font(.system(size: 12))
+                .foregroundStyle(Macaron.secondary)
+                .padding(.horizontal, 13).padding(.vertical, 8)
+                .background(Color.white.opacity(0.72), in: Capsule())
+        } else if message.kind == .redPacket {
+            HStack(spacing: 11) {
+                Image(systemName: "gift.fill").font(.system(size: 25)).foregroundStyle(.white)
+                    .frame(width: 45, height: 45).background(Color(hex: 0xE97868), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("虚拟红包").font(.system(size: 15, weight: .semibold))
+                    Text(message.note.isEmpty ? "恭喜发财" : message.note).font(.system(size: 12)).opacity(0.8)
+                    Text("¥\\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
+                }.foregroundStyle(Macaron.ink)
             }
-            .buttonStyle(.plain)
+            .padding(12).frame(width: 225, alignment: .leading)
+            .background(Color(hex: 0xFCE7E2), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white, lineWidth: 1))
+        } else if message.kind == .transfer {
+            HStack(spacing: 11) {
+                Image(systemName: "yensign.circle.fill").font(.system(size: 30)).foregroundStyle(.white)
+                    .frame(width: 45, height: 45).background(Color(hex: 0xE7A65B), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("虚拟转账").font(.system(size: 15, weight: .semibold))
+                    Text(message.note.isEmpty ? "转账" : message.note).font(.system(size: 12)).opacity(0.8)
+                    Text("¥\\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
+                }.foregroundStyle(Macaron.ink)
+            }
+            .padding(12).frame(width: 225, alignment: .leading)
+            .background(Color(hex: 0xFFF1D9), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white, lineWidth: 1))
+        } else if let data = message.imageData, let image = UIImage(data: data) {
+            Button { onImageTap(data) } label: {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: 285, maxHeight: 270)
+                    .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous)).padding(7)
+                    .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color.white.opacity(0.95), lineWidth: 1.4))
+            }.buttonStyle(.plain)
         } else {
-            Text(message.text)
-                .font(.system(size: fontSize))
-                .foregroundStyle(Macaron.ink)
-                .fixedSize(horizontal: false, vertical: true)
-                 .padding(.horizontal, 15)
-                .padding(.vertical, 11)
-                .background(
-                    isMe ? outgoingColor.opacity(0.78) : Macaron.card,
-                    in: RoundedRectangle(cornerRadius: 27, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 27, style: .continuous)
-                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
-                )
+            Text(message.text).font(.system(size: fontSize)).foregroundStyle(Macaron.ink)
+                .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 15).padding(.vertical, 11)
+                .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
     }
 }
