@@ -331,8 +331,8 @@ private final class ChatModel: ObservableObject {
         if last.isWithdrawn { return "撤回了一条消息" }
         switch last.kind {
         case .image: return "发来了一张图片"
-        case .redPacket: return "发送了一个虚拟红包"
-        case .transfer: return "发送了一笔虚拟转账"
+        case .redPacket: return "发送了一个红包"
+        case .transfer: return "发送了一笔转账"
         case .call: return last.note
         case .voice: return "语音消息"
         case .text: return last.text
@@ -779,21 +779,21 @@ struct ContentView: View {
 
     private var paymentPresentation: some View {
         basePresentation
-            .alert("创建虚拟红包", isPresented: $showRedPacketInput) {
+            .alert("发红包", isPresented: $showRedPacketInput) {
                 TextField("金额，例如 8.88", text: $paymentAmountDraft).keyboardType(.decimalPad)
                 TextField("红包标题", text: $paymentNoteDraft)
                 Button("取消", role: .cancel) {}
                 Button("发送") { sendPaymentMessage(kind: .redPacket) }
             } message: {
-                Text("仅用于聊天界面演示，不涉及真实支付。")
+                Text("红包仅在本机记录，不涉及真实支付。")
             }
-            .alert("创建虚拟转账", isPresented: $showTransferInput) {
+            .alert("发起转账", isPresented: $showTransferInput) {
                 TextField("金额，例如 66.00", text: $paymentAmountDraft).keyboardType(.decimalPad)
                 TextField("转账说明", text: $paymentNoteDraft)
                 Button("取消", role: .cancel) {}
                 Button("发送") { sendPaymentMessage(kind: .transfer) }
             } message: {
-                Text("使用本地模拟钱包记录，不涉及真实资金交易。")
+                Text("使用本地钱包记录，不涉及真实资金交易。")
             }
             .sheet(isPresented: Binding(
                 get: { timeEditingMessage != nil },
@@ -1611,7 +1611,7 @@ struct ContentView: View {
 
 
 
-                Text("CustomChat · 本地社交模拟")
+                Text("CustomChat · 本地社交")
                     .font(.system(size: 11))
                     .foregroundStyle(Macaron.secondary)
                     .padding(.bottom, 18)
@@ -2292,7 +2292,7 @@ private struct MessageRow: View {
                 Image(systemName: "yensign.circle.fill").font(.system(size: 30)).foregroundStyle(.white)
                     .frame(width: 45, height: 45).background(Color(hex: 0xE7A65B), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("虚拟转账").font(.system(size: 15, weight: .semibold))
+                    Text("转账").font(.system(size: 15, weight: .semibold))
                     Text(message.note.isEmpty ? "转账" : message.note).font(.system(size: 12)).opacity(0.8)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
                     if !isMe && !message.isReceived {
@@ -2357,8 +2357,8 @@ private struct AddContentMenu: View {
 
                 HStack(spacing: 12) {
                     AddContentMenuItem(symbol: "photo", title: "照片", tint: Color(hex: 0xDCEBFA), action: onPhoto)
-                    AddContentMenuItem(symbol: "gift", title: "虚拟红包", tint: Color(hex: 0xF9E2DF), action: onRedPacket)
-                    AddContentMenuItem(symbol: "yensign.circle", title: "虚拟转账", tint: Color(hex: 0xFBEBD2), action: onTransfer)
+                    AddContentMenuItem(symbol: "gift", title: "红包", tint: Color(hex: 0xF9E2DF), action: onRedPacket)
+                    AddContentMenuItem(symbol: "yensign.circle", title: "转账", tint: Color(hex: 0xFBEBD2), action: onTransfer)
                 }
                 .padding(.bottom, 8)
             }
