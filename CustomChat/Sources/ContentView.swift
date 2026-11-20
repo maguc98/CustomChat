@@ -1218,13 +1218,13 @@ struct ContentView: View {
             .onAppear {
                 voiceCapture.onFailure = { showMicrophoneAlert = true }
             }
-            .alert("需要语音权限", isPresented: $showMicrophoneAlert) {
+            .alert("需要麦克风权限或模型下载", isPresented: $showMicrophoneAlert) {
                 Button("知道了", role: .cancel) { }
                 Button("打开设置") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
             } message: {
-                Text("请允许麦克风和语音识别权限，才能显示实时声波并将中文语音转换为文字。应用不会保存录音文件。")
+                Text("请允许 CustomChat 使用麦克风。首次使用还需要联网下载中文离线模型；下载完成后，识别将在本机运行，不会上传或保存录音。")
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .inactive || phase == .background {
