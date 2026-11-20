@@ -325,6 +325,20 @@ private final class ChatModel: ObservableObject {
         contacts[index] = updated
     }
 
+    func deleteContact(_ contact: ChatContact) {
+        guard contacts.contains(where: { $0.id == contact.id }) else { return }
+        threadMessages.removeValue(forKey: contact.id.uuidString)
+        contacts.removeAll { $0.id == contact.id }
+        if selectedContactID == contact.id {
+            selectedContactID = contacts.first?.id
+            isSwitchingThread = true
+            messages = selectedContactID.flatMap { threadMessages[$0.uuidString] } ?? []
+            isSwitchingThread = false
+        }
+        persistContacts()
+        UserDefaults.standard.set(try? JSONEncoder().encode(threadMessages), forKey: threadsKey)
+    }
+
     func preview(for contact: ChatContact) -> String {
         let last = threadMessages[contact.id.uuidString]?.last
         guard let last else { return "开始你们的第一段对话" }
@@ -586,6 +600,8 @@ struct ContentView: View {
     @State private var selectedTab: AppTab = .chats
     @State private var showConversation = false
     @State private var showMyProfileEditor = false
+    @State private var isProfileSettingsExpanded = false
+    @State private var contactPendingDeletion: ChatContact?
     @State private var showAddContact = false
     @State private var showCreateGroup = false
     @StateObject private var voiceCapture = VoiceCaptureManager()
@@ -747,6 +763,24 @@ struct ContentView: View {
             }
             .sheet(item: $previewPhoto) { photo in
                 PhotoPreviewView(data: photo.data)
+            }
+            .confirmationDialog(
+                "删除“\(contactPendingDeletion?.name ?? "好友")”？",
+                isPresented: Binding(
+                    get: { contactPendingDeletion != nil },
+                    set: { if !$0 { contactPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("删除好友及本机聊天记录", role: .destructive) {
+                    if let contact = contactPendingDeletion {
+                        model.deleteContact(contact)
+                    }
+                    contactPendingDeletion = nil
+                }
+                Button("取消", role: .cancel) { contactPendingDeletion = nil }
+            } message: {
+                Text("删除后，该好友及对应的本机聊天记录将一并移除。")
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
             .overlay {
@@ -1027,6 +1061,19 @@ struct ContentView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    model.selectContact(contact.id)
+                                    showFriendProfile = true
+                                } label: {
+                                    Label("编辑好友", systemImage: "pencil")
+                                }
+                                Button(role: .destructive) {
+                                    contactPendingDeletion = contact
+                                } label: {
+                                    Label("删除好友", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
@@ -1447,12 +1494,28 @@ struct ContentView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("设置")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            isProfileSettingsExpanded.toggle()
+                        }
+                    } label: {
+                        HStack {
+                            Text("设置")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Macaron.ink)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Macaron.secondary)
+                                .rotationEffect(.degrees(isProfileSettingsExpanded ? 180 : 0))
+                        }
+                        .contentShape(Rectangle())
                         .padding(.horizontal, 15)
                         .padding(.top, 12)
+                        .padding(.bottom, isProfileSettingsExpanded ? 0 : 12)
+                    }
+                    .buttonStyle(.plain)
+                    if isProfileSettingsExpanded {
                     VStack(spacing: 0) {
                     SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
                         showBackgroundPicker = true
@@ -1476,6 +1539,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 15)
                     .padding(.bottom, 8)
+                    }
                 }
                 .padding(.vertical, 4)
                 .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
