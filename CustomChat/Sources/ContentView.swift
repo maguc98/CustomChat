@@ -2632,7 +2632,7 @@ private struct SimulatedVoiceInputSheet: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             HStack(alignment: .center, spacing: 4) {
-                ForEach(0..< thirtyBars, id: \.self) { index in
+                ForEach(0..<30, id: \.self) { index in
                     TimelineView(.animation(minimumInterval: 0.12, paused: false)) { context in
                         let phase = context.date.timeIntervalSinceReferenceDate * 4.2 + Double(index) * 0.73
                         Capsule()
@@ -2667,9 +2667,6 @@ private struct SimulatedVoiceInputSheet: View {
         .presentationDragIndicator(.hidden)
     }
 
-    private var thirtyBars: Int {  thirtyBarsCount }
-    private var thirtyBarsCount: Int {  thirtyBarsConstant }
-    private var thirtyBarsConstant: Int { 30 }
 }
 
 private struct CallControlButton: View {
