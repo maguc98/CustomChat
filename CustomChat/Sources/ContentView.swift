@@ -45,7 +45,6 @@ final class VoiceCaptureManager: ObservableObject {
                 guard granted else { onDenied(); return }
                 SFSpeechRecognizer.requestAuthorization { status in
                     DispatchQueue.main.async {
-                        guard let self else { return }
                         let canTranscribe = status == .authorized && self.speechRecognizer != nil
                         if !canTranscribe { onDenied() }
                         self.begin(enableTranscription: canTranscribe)
