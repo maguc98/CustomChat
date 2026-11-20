@@ -643,6 +643,9 @@ private struct MessageRow: View {
     let onDelete: () -> Void
 
     private let ink = Color(red: 0.19, green: 0.12, blue: 0.31)
+    private let sky = Color(red: 0.30, green: 0.72, blue: 1.00)
+    private let mint = Color(red: 0.28, green: 0.86, blue: 0.65)
+    private let rose = Color(red: 1.00, green: 0.34, blue: 0.62)
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
