@@ -630,6 +630,9 @@ struct ContentView: View {
     private var basePresentation: some View {
         pageContent
             .preferredColorScheme(.light)
+            .onAppear {
+                voiceCapture.onFailure = { showMicrophoneAlert = true }
+            }
             .alert("需要麦克风权限", isPresented: $showMicrophoneAlert) {
                 Button("知道了", role: .cancel) { }
                 Button("打开设置") {
@@ -1209,6 +1212,9 @@ struct ContentView: View {
         .padding(.top, 6)
         .padding(.bottom, 8)
         .background(Macaron.card)
+        .onDisappear {
+            if voiceCapture.isRecording { _ = voiceCapture.stop() }
+        }
     }
 
     private var profileView: some View {
