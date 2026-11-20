@@ -304,7 +304,7 @@ struct ContentView: View {
         }
     }
 
-    var body: some View {
+    private var pageContent: some View {
         ZStack {
             Macaron.background.ignoresSafeArea()
             if showConversation {
@@ -315,6 +315,10 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
+    }
+
+    var body: some View {
+        pageContent
         .preferredColorScheme(.light)
         .onChange(of: scenePhase) { _, phase in
             if phase == .inactive || phase == .background {
