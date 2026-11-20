@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreTransferable
 import PhotosUI
 import UIKit
 import AVKit
@@ -545,6 +546,21 @@ private struct SelectedPhoto: Identifiable {
     let data: Data
 }
 
+private struct PickedCallVideo: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .movie) { received in
+            let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
+            let destination = FileManager.default.temporaryDirectory
+                .appendingPathComponent("customchat-call-\(UUID().uuidString)")
+                .appendingPathExtension(ext)
+            try FileManager.default.copyItem(at: received.file, to: destination)
+            return PickedCallVideo(url: destination)
+        }
+    }
+}
+
 struct ContentView: View {
     @StateObject private var model = ChatModel()
     @Environment(\.scenePhase) private var scenePhase
@@ -680,6 +696,10 @@ struct ContentView: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .inactive || phase == .background {
                     model.persistIdentity()
+                    if voiceCapture.isRecording {
+                        _ = voiceCapture.stop()
+                        isVoiceComposer = false
+                    }
                 }
             }
             .sheet(isPresented: $showMyProfileEditor) { myProfileEditor }
@@ -872,7 +892,9 @@ struct ContentView: View {
             .alert("余额不足", isPresented: $showInsufficientBalance) {
                 Button("知道了", role: .cancel) {}
             } message: {
-                Text("你的钱包余额不足，请先在“我的”页面调整模拟余额。")
+                Text(model.activeRole == .me
+                     ? "我方账户余额不足，请先在“我的”页面调整余额。"
+                     : "对方账户余额不足，请先为对方身份补充余额。")
             }
             .alert("清空聊天记录？", isPresented: $showClearConfirmation) {
                 Button("取消", role: .cancel) {}
@@ -1350,7 +1372,17 @@ struct ContentView: View {
                     Text("¥\(model.walletBalance, specifier: "%.2f")")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundStyle(Macaron.ink)
-                    Text("仅为本地模拟钱包。你向好友转账时扣款，好友向你转账时余额增加，不会扣款。")
+                    HStack {
+                        Text("对方账户余额")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Macaron.secondary)
+                        Spacer()
+                        Text("¥\(model.otherWalletBalance, specifier: "%.2f")")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Macaron.ink)
+                    }
+                    .padding(.top, 2)
+                    Text("红包和转账会从发送身份的余额扣除，领取后计入接收身份余额。仅保存在本机，不涉及真实资金。")
                         .font(.system(size: 11))
                         .foregroundStyle(Macaron.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2378,6 +2410,7 @@ private struct SimulatedCallView: View {
     @State private var selectedImage: UIImage?
     @State private var selectedVideoURL: URL?
     @State private var videoPlayer: AVPlayer?
+    @State private var showMediaImportError = false
 
     var body: some View {
         ZStack {
@@ -2524,24 +2557,35 @@ private struct SimulatedCallView: View {
             }
         }
         .onChange(of: selectedMedia) { _, item in
+            guard let item else { return }
             Task {
-                guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
-                if let image = UIImage(data: data) {
-                    selectedImage = image
-                    selectedVideoURL = nil
-                    videoPlayer = nil
+                if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                    guard let imported = try? await item.loadTransferable(type: PickedCallVideo.self) else {
+                        showMediaImportError = true
+                        selectedMedia = nil
+                        return
+                    }
+                    if let oldURL = selectedVideoURL { try? FileManager.default.removeItem(at: oldURL) }
+                    videoPlayer?.pause()
+                    selectedImage = nil
+                    selectedVideoURL = imported.url
+                    let player = AVPlayer(url: imported.url)
+                    videoPlayer = player
+                    player.play()
                 } else {
-                    let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "mp4"
-                    let url = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("customchat-call-\\(UUID().uuidString).\\(ext)")
-                    do {
-                        try data.write(to: url, options: .atomic)
-                        selectedImage = nil
-                        selectedVideoURL = url
-                        videoPlayer = AVPlayer(url: url)
-                        videoPlayer?.play()
-                    } catch { }
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else {
+                        showMediaImportError = true
+                        selectedMedia = nil
+                        return
+                    }
+                    if let oldURL = selectedVideoURL { try? FileManager.default.removeItem(at: oldURL) }
+                    videoPlayer?.pause()
+                    videoPlayer = nil
+                    selectedVideoURL = nil
+                    selectedImage = image
                 }
+                selectedMedia = nil
             }
         }
         .task {
@@ -2549,6 +2593,11 @@ private struct SimulatedCallView: View {
             guard !didEnd else { return }
             connectedAt = .now
             withAnimation(.easeInOut(duration: 0.25)) { isConnected = true }
+        }
+        .alert("无法载入媒体", isPresented: $showMediaImportError) {
+            Button("知道了", role: .cancel) { }
+        } message: {
+            Text("这张图片或视频暂时无法读取，请换一个文件再试。")
         }
     }
 
