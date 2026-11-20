@@ -2416,21 +2416,9 @@ private struct SimulatedCallView: View {
     let name: String
     let meName: String
     let avatarData: Data?
-    let call.isVideo: Bool
+    @ObservedObject var call: SimulatedCall
     let onMinimize: () -> Void
     let onEnd: (Int) -> Void
-
-    @State private var call.isConnected = false
-    @State private var call.isMuted = false
-    @State private var call.isSpeakerOn = true
-    @State private var call.isCameraOn = true
-    @State private var call.connectedAt: Date?
-    @State private var call.didEnd = false
-    @State private var call.selectedMedia: PhotosPickerItem?
-    @State private var call.selectedImage: UIImage?
-    @State private var call.selectedVideoURL: URL?
-    @State private var call.videoPlayer: AVPlayer?
-    @State private var call.showMediaImportError = false
 
     var body: some View {
         ZStack {
