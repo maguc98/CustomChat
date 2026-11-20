@@ -1346,7 +1346,7 @@ private struct MessageRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("虚拟红包").font(.system(size: 15, weight: .semibold))
                     Text(message.note.isEmpty ? "恭喜发财" : message.note).font(.system(size: 12)).opacity(0.8)
-                    Text("¥\\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
+                    Text("¥\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
                 }.foregroundStyle(Macaron.ink)
             }
             .padding(12).frame(width: 225, alignment: .leading)
@@ -1359,7 +1359,7 @@ private struct MessageRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("虚拟转账").font(.system(size: 15, weight: .semibold))
                     Text(message.note.isEmpty ? "转账" : message.note).font(.system(size: 12)).opacity(0.8)
-                    Text("¥\\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
+                    Text("¥\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
                 }.foregroundStyle(Macaron.ink)
             }
             .padding(12).frame(width: 225, alignment: .leading)
