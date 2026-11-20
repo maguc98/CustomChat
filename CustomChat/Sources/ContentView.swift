@@ -3103,7 +3103,7 @@ private struct VoiceMessageBubble: View {
             }
             .foregroundStyle(Macaron.ink)
             .padding(.horizontal, 14).padding(.vertical, 11)
-            .frame(width: min(260, max(165, 120 + CGFloat(message.voiceDuration) * 5)), alignment: .leading)
+            .frame(width: 230, alignment: .leading)
             .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
