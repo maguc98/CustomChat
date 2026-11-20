@@ -392,7 +392,9 @@ private final class ChatModel: ObservableObject {
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         // A voice message keeps its original waveform and duration. The text
         // field stores the transcript entered by the user.
-        messages[index].text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        messages[index].text = message.kind == .voice
+            ? text.trimmingCharacters(in: .whitespacesAndNewlines)
+            : text
     }
 
     func changeRole(_ message: ChatMessage) {
@@ -595,6 +597,7 @@ struct ContentView: View {
     @State private var showBalanceEditor = false
     @State private var showInsufficientBalance = false
     @State private var walletBalanceDraft = ""
+    @State private var editingWalletRole: ChatRole = .me
     @State private var showMyMomentEditor = false
     @State private var myMomentDraft = ""
     @State private var editingMyMomentID: UUID?
@@ -1380,6 +1383,7 @@ struct ContentView: View {
                             .foregroundStyle(Macaron.ink)
                         Spacer()
                         Button("修改余额") {
+                            editingWalletRole = .me
                             walletBalanceDraft = String(format: "%.2f", model.walletBalance)
                             showBalanceEditor = true
                         }
@@ -1400,6 +1404,13 @@ struct ContentView: View {
                         Text("¥\(model.otherWalletBalance, specifier: "%.2f")")
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(Macaron.ink)
+                        Button("修改") {
+                            editingWalletRole = .other
+                            walletBalanceDraft = String(format: "%.2f", model.otherWalletBalance)
+                            showBalanceEditor = true
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
                     }
                     .padding(.top, 2)
                     Text("红包和转账会从发送身份的余额扣除，领取后计入接收身份余额。仅保存在本机，不涉及真实资金。")
@@ -1424,11 +1435,15 @@ struct ContentView: View {
                     Button("取消", role: .cancel) {}
                     Button("保存") {
                         if let value = Double(walletBalanceDraft), value >= 0 {
-                            model.walletBalance = value
+                            if editingWalletRole == .me {
+                                model.walletBalance = value
+                            } else {
+                                model.otherWalletBalance = value
+                            }
                         }
                     }
                 } message: {
-                    Text("余额仅保存在本机，用于模拟聊天转账。")
+                    Text(editingWalletRole == .me ? "修改我方身份的本地余额。" : "修改对方身份的本地余额。两边余额分别保存。")
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
