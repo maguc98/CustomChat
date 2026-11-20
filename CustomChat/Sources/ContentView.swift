@@ -290,7 +290,7 @@ struct ContentView: View {
                 .font(.system(size: 18, weight: .bold, design: .rounded))
                 .foregroundStyle(ink)
 
-            Text("从这里开始记录你们的对话。\\n可以切换身份、发送文字和图片。")
+            Text("从这里开始记录你们的对话。\n可以切换身份、发送文字和图片。")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(ink.opacity(0.55))
                 .multilineTextAlignment(.center)
@@ -319,7 +319,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(ink.opacity(0.52))
 
-                ForEach(ChatRole.allCases, id: \\.self) { role in
+                ForEach(ChatRole.allCases, id: \.self) { role in
                     Button {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.76)) {
                             model.activeRole = role
@@ -489,7 +489,7 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("更换\\(title)头像")
+            .accessibilityLabel("更换\(title)头像")
 
             VStack(alignment: .leading, spacing: 7) {
                 Text(title)
@@ -520,12 +520,12 @@ struct ContentView: View {
 
         let destination: URL?
         if video {
-            destination = URL(string: "facetime://\\(contact)")
+            destination = URL(string: "facetime://\(contact)")
         } else if contact.contains("@") {
-            destination = URL(string: "facetime-audio://\\(contact)")
+            destination = URL(string: "facetime-audio://\(contact)")
         } else {
             let digits = contact.filter { $0.isNumber || $0 == "+" }
-            destination = URL(string: "tel:\\(digits)")
+            destination = URL(string: "tel:\(digits)")
         }
 
         guard let destination else {
