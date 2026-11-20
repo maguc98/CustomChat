@@ -433,21 +433,21 @@ struct ContentView: View {
             }
             .padding(.horizontal, 19)
             .padding(.top, 10)
-            .padding(.bottom, 13)
+            .padding(.bottom, 9)
             .background(Macaron.card)
 
             Rectangle().fill(Macaron.line).frame(height: 1)
 
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 23) {
+                    VStack(spacing: 19) {
                         Text("今天")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Macaron.secondary)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .background(Color(hex: 0xEEF1F6), in: Capsule())
-                            .padding(.top, 18)
+                            .padding(.top, 12)
 
                         if model.messages.isEmpty {
                             EmptyHint(symbol: "bubble.left", title: "从这里开始聊天", subtitle: "切换发送身份，发送文字或图片。")
@@ -470,7 +470,7 @@ struct ContentView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.messages.count) { _, _ in
@@ -492,7 +492,8 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             )
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 6)
 
             composer
         }
@@ -560,7 +561,7 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 17)
-        .padding(.top, 12)
+        .padding(.top, 8)
         .padding(.bottom, 10)
         .background(Macaron.card)
     }
