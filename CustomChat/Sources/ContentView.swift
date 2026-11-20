@@ -502,18 +502,18 @@ struct ContentView: View {
 
     private var composer: some View {
         VStack(spacing: 11) {
-            HStack(spacing: 9) {
+            HStack(spacing: 8) {
                 Text("发送身份")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Macaron.secondary)
-                    .padding(.trailing, 2)
+                    .padding(.trailing, 1)
                 ForEach(ChatRole.allCases, id: \.self) { role in
                     Button { withAnimation(.easeOut(duration: 0.16)) { model.activeRole = role } } label: {
                         Text(model.name(for: role))
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Macaron.ink)
-                            .padding(.horizontal, 17)
-                            .frame(height: 34)
+                            .padding(.horizontal, 14)
+                            .frame(height: 30)
                             .background(
                                 model.activeRole == role
                                     ? (role == .me ? accentColor.opacity(0.72) : Macaron.pink.opacity(0.85))
@@ -529,16 +529,16 @@ struct ContentView: View {
             HStack(spacing: 11) {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Image(systemName: "plus")
-                        .font(.system(size: 23, weight: .medium))
+                        .font(.system(size: 21, weight: .medium))
                         .foregroundStyle(Color(hex: 0x5799D9))
-                        .frame(width: 54, height: 54)
+                        .frame(width: 46, height: 46)
                         .background(accentColor.opacity(0.68), in: Circle())
                 }
                 .accessibilityLabel("发送图片")
 
                 HStack(spacing: 8) {
                     TextField("输入消息...", text: $draft, axis: .vertical)
-                        .font(.system(size: fontOption == "偏大" ? 17 : 16))
+                        .font(.system(size: fontOption == "偏大" ? 16 : 15))
                         .foregroundStyle(Macaron.ink)
                         .lineLimit(1...4)
                         .padding(.vertical, 12)
@@ -547,7 +547,7 @@ struct ContentView: View {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
+                            .frame(width: 32, height: 32)
                             .background(accentColor.opacity(0.9), in: Circle())
                     }
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -555,7 +555,7 @@ struct ContentView: View {
                 }
                 .padding(.leading, 17)
                 .padding(.trailing, 8)
-                .frame(minHeight: 54)
+                .frame(minHeight: 48)
                 .background(Macaron.card, in: Capsule())
                 .overlay(Capsule().stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
             }
