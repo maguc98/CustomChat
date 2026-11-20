@@ -81,9 +81,16 @@ private final class ChatModel: ObservableObject {
            let value = try? JSONDecoder().decode([ChatMessage].self, from: data) {
             messages = value
         }
-        if let data = UserDefaults.standard.data(forKey: identityKey),
+        if let fileURL = Self.identityFileURL(),
+           let data = try? Data(contentsOf: fileURL),
            let value = try? JSONDecoder().decode(ChatIdentity.self, from: data) {
             identity = value
+            UserDefaults.standard.set(data, forKey: identityKey)
+        } else if let data = UserDefaults.standard.data(forKey: identityKey),
+                  let value = try? JSONDecoder().decode(ChatIdentity.self, from: data) {
+            // Migrate profiles saved by previous versions into the durable file store.
+            identity = value
+            persistIdentity()
         }
         if let data = UserDefaults.standard.data(forKey: callsKey),
            let value = try? JSONDecoder().decode([CallRecord].self, from: data) {
@@ -143,12 +150,36 @@ private final class ChatModel: ObservableObject {
         var updated = identity
         if role == .me { updated.meAvatarData = data } else { updated.otherAvatarData = data }
         identity = updated
-        persistIdentity()
+    }
+
+    private static func identityFileURL() -> URL? {
+        guard let supportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else { return nil }
+        return supportDirectory
+            .appendingPathComponent("CustomChat", isDirectory: true)
+            .appendingPathComponent("identity-v1.json", isDirectory: false)
     }
 
     func persistIdentity() {
-        guard let data = try? JSONEncoder().encode(identity) else { return }
-        UserDefaults.standard.set(data, forKey: identityKey)
+        guard let fileURL = Self.identityFileURL(),
+              let data = try? JSONEncoder().encode(identity) else { return }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            // Atomic file replacement prevents a force-quit during a write from
+            // leaving a partially written profile or avatar.
+            try data.write(to: fileURL, options: .atomic)
+
+            // Keep the previous UserDefaults entry as a compatibility backup.
+            UserDefaults.standard.set(data, forKey: identityKey)
+        } catch {
+            NSLog("CustomChat: failed to persist identity: %@", error.localizedDescription)
+        }
     }
 
     func name(for role: ChatRole) -> String {
@@ -214,6 +245,7 @@ private struct SelectedPhoto: Identifiable {
 
 struct ContentView: View {
     @StateObject private var model = ChatModel()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .chats
     @State private var showConversation = false
     @State private var showIdentitySettings = false
@@ -284,6 +316,11 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.light)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .inactive || phase == .background {
+                model.persistIdentity()
+            }
+        }
         .sheet(isPresented: $showIdentitySettings) { settingsSheet }
         .sheet(item: $previewPhoto) { photo in PhotoPreviewView(data: photo.data) }
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
@@ -938,7 +975,10 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { showIdentitySettings = false }
+                    Button("完成") {
+                        model.persistIdentity()
+                        showIdentitySettings = false
+                    }
                         .fontWeight(.semibold)
                 }
             }
@@ -958,7 +998,6 @@ struct ContentView: View {
                     updated.other = newValue
                 }
                 model.identity = updated
-                model.persistIdentity()
             }
         )
     }
