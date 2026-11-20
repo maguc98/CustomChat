@@ -408,14 +408,14 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                         .frame(width: 30, height: 42)
                 }
-                IdentityAvatar(data: model.identity.otherAvatarData, name: model.name(for: .other), size: 43, tint: Macaron.pink)
-                VStack(alignment: .leading, spacing: 3) {
+                IdentityAvatar(data: model.identity.otherAvatarData, name: model.name(for: .other), size: 48, tint: Macaron.pink)
+                VStack(alignment: .leading, spacing: 4) {
                     Text(model.name(for: .other))
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(Macaron.ink)
-                    HStack(spacing: 5) {
-                        Circle().fill(Color(hex: 0x55C987)).frame(width: 7, height: 7)
-                        Text("本地模拟聊天").font(.system(size: 12)).foregroundStyle(Macaron.secondary)
+                    HStack(spacing: 6) {
+                        Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
+                        Text("本地模拟聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
                     }
                 }
                 Spacer()
@@ -431,16 +431,16 @@ struct ContentView: View {
                     Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40)
                 }
             }
-            .padding(.horizontal, 17)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 19)
+            .padding(.top, 10)
+            .padding(.bottom, 13)
             .background(Macaron.card)
 
             Rectangle().fill(Macaron.line).frame(height: 1)
 
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 17) {
+                    VStack(spacing: 23) {
                         Text("今天")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Macaron.secondary)
@@ -489,65 +489,68 @@ struct ContentView: View {
     }
 
     private var composer: some View {
-        VStack(spacing: 9) {
-            HStack(spacing: 8) {
+        VStack(spacing: 11) {
+            HStack(spacing: 9) {
                 Text("发送身份")
-                    .font(.system(size: 11))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Macaron.secondary)
+                    .padding(.trailing, 2)
                 ForEach(ChatRole.allCases, id: \.self) { role in
-                    Button { model.activeRole = role } label: {
+                    Button { withAnimation(.easeOut(duration: 0.16)) { model.activeRole = role } } label: {
                         Text(model.name(for: role))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Macaron.ink)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 17)
+                            .frame(height: 34)
                             .background(
                                 model.activeRole == role
-                                    ? (role == .me ? accentColor.opacity(0.62) : Macaron.pink)
-                                    : Color(hex: 0xF0F2F6),
+                                    ? (role == .me ? accentColor.opacity(0.72) : Macaron.pink.opacity(0.85))
+                                    : Color(hex: 0xF0F1F5),
                                 in: Capsule()
                             )
                     }
                     .buttonStyle(.plain)
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
-            HStack(spacing: 10) {
+
+            HStack(spacing: 11) {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Image(systemName: "plus")
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x5D9FE2))
-                        .frame(width: 42, height: 44)
-                        .background(accentColor.opacity(0.55), in: Circle())
+                        .font(.system(size: 23, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x5799D9))
+                        .frame(width: 54, height: 54)
+                        .background(accentColor.opacity(0.68), in: Circle())
                 }
                 .accessibilityLabel("发送图片")
 
                 HStack(spacing: 8) {
                     TextField("输入消息...", text: $draft, axis: .vertical)
-                        .font(.system(size: fontOption == "偏大" ? 17 : 15))
+                        .font(.system(size: fontOption == "偏大" ? 17 : 16))
                         .foregroundStyle(Macaron.ink)
                         .lineLimit(1...4)
+                        .padding(.vertical, 12)
                         .onSubmit(sendText)
                     Button(action: sendText) {
                         Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(.white)
-                            .frame(width: 31, height: 31)
-                            .background(accentColor.opacity(0.95), in: Circle())
+                            .frame(width: 36, height: 36)
+                            .background(accentColor.opacity(0.9), in: Circle())
                     }
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.35 : 1)
+                    .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.38 : 1)
                 }
-                .padding(.leading, 15)
-                .padding(.trailing, 7)
-                .frame(minHeight: 46)
+                .padding(.leading, 17)
+                .padding(.trailing, 8)
+                .frame(minHeight: 54)
                 .background(Macaron.card, in: Capsule())
-                .overlay(Capsule().stroke(Macaron.line, lineWidth: 1))
+                .overlay(Capsule().stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 17)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
         .background(Macaron.card)
     }
 
@@ -1100,59 +1103,73 @@ private struct MessageRow: View {
     let onImageTap: (Data) -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if isMe { Spacer(minLength: 55) }
-            if !isMe {
-                IdentityAvatar(data: avatarData, name: name, size: 34, tint: Macaron.pink)
-            }
-            VStack(alignment: isMe ? .trailing : .leading, spacing: 5) {
-                VStack(alignment: isMe ? .trailing : .leading, spacing: 7) {
-                    if let data = message.imageData, let image = UIImage(data: data) {
-                        Button { onImageTap(data) } label: {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: 230, maxHeight: 290)
-                                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if !message.text.isEmpty {
-                        Text(message.text)
-                            .font(.system(size: fontSize))
-                            .foregroundStyle(Macaron.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(.horizontal, message.imageData == nil ? 15 : 8)
-                .padding(.vertical, message.imageData == nil ? 12 : 8)
-                .background(
-                    isMe ? outgoingColor.opacity(0.62) : Macaron.card,
-                    in: RoundedRectangle(cornerRadius: 21, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 21, style: .continuous)
-                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
-                )
-                .frame(maxWidth: 275, alignment: isMe ? .trailing : .leading)
-                .contextMenu {
-                    if !message.text.isEmpty {
-                        Button("编辑", systemImage: "pencil", action: onEdit)
-                    }
-                    Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
-                }
-                Text(message.time, format: .dateTime.hour().minute())
-                    .font(.system(size: 10))
-                    .foregroundStyle(Macaron.secondary)
-                    .padding(.horizontal, 5)
-            }
+        HStack(alignment: .bottom, spacing: 9) {
             if isMe {
-                IdentityAvatar(data: avatarData, name: name, size: 34, tint: Macaron.blue)
+                Spacer(minLength: 58)
             } else {
-                Spacer(minLength: 55)
+                IdentityAvatar(data: avatarData, name: name, size: 38, tint: Macaron.pink)
+            }
+
+            VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
+                messageBubble
+                    .contextMenu {
+                        if !message.text.isEmpty {
+                            Button("编辑", systemImage: "pencil", action: onEdit)
+                        }
+                        Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
+                    }
+
+                Text(message.time, format: .dateTime.hour().minute())
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x8791A3))
+                    .padding(.horizontal, 7)
+            }
+
+            if isMe {
+                IdentityAvatar(data: avatarData, name: name, size: 38, tint: Macaron.blue)
+            } else {
+                Spacer(minLength: 58)
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var messageBubble: some View {
+        if let data = message.imageData, let image = UIImage(data: data) {
+            Button { onImageTap(data) } label: {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 285, maxHeight: 270)
+                    .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    .padding(7)
+                    .background(
+                        isMe ? outgoingColor.opacity(0.78) : Macaron.card,
+                        in: RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 25, style: .continuous)
+                            .stroke(Color.white.opacity(0.95), lineWidth: 1.4)
+                    )
+            }
+            .buttonStyle(.plain)
+        } else {
+            Text(message.text)
+                .font(.system(size: fontSize))
+                .foregroundStyle(Macaron.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .background(
+                    isMe ? outgoingColor.opacity(0.78) : Macaron.card,
+                    in: RoundedRectangle(cornerRadius: 27, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 27, style: .continuous)
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                )
+        }
     }
 }
 
