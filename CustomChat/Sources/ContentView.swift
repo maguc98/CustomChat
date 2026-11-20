@@ -336,24 +336,36 @@ struct ContentView: View {
                 PhotoPreviewView(data: photo.data)
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
+            .overlay {
+                if showAddMenu {
+                    AddContentMenu(
+                        onDismiss: { showAddMenu = false },
+                        onPhoto: {
+                            showAddMenu = false
+                            showPhotoPicker = true
+                        },
+                        onRedPacket: {
+                            showAddMenu = false
+                            paymentAmountDraft = ""
+                            paymentNoteDraft = "恭喜发财"
+                            showRedPacketInput = true
+                        },
+                        onTransfer: {
+                            showAddMenu = false
+                            paymentAmountDraft = ""
+                            paymentNoteDraft = "转账"
+                            showTransferInput = true
+                        }
+                    )
+                    .transition(.opacity)
+                    .zIndex(20)
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: showAddMenu)
     }
 
     private var paymentPresentation: some View {
         basePresentation
-            .confirmationDialog("添加内容", isPresented: $showAddMenu, titleVisibility: .visible) {
-                Button("照片", systemImage: "photo") { showPhotoPicker = true }
-                Button("虚拟红包", systemImage: "gift") {
-                    paymentAmountDraft = ""
-                    paymentNoteDraft = "恭喜发财"
-                    showRedPacketInput = true
-                }
-                Button("虚拟转账", systemImage: "yensign.circle") {
-                    paymentAmountDraft = ""
-                    paymentNoteDraft = "转账"
-                    showTransferInput = true
-                }
-                Button("取消", role: .cancel) {}
-            }
             .alert("创建虚拟红包", isPresented: $showRedPacketInput) {
                 TextField("金额，例如 8.88", text: $paymentAmountDraft).keyboardType(.decimalPad)
                 TextField("红包标题", text: $paymentNoteDraft)
@@ -734,7 +746,11 @@ struct ContentView: View {
                         .foregroundStyle(Color(hex: 0x5799D9))
                         .frame(width: 46, height: 46)
                         .background(accentColor.opacity(0.68), in: Circle())
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("添加聊天内容")
 
                 HStack(spacing: 8) {
@@ -1097,12 +1113,18 @@ struct ContentView: View {
     }
 
     private func playMessageSound() {
+        // Replace the loud system alert tone with a subtle, low-intensity haptic.
         guard soundOption != "关闭" else { return }
-        AudioServicesPlaySystemSound(soundOption == "清脆" ? 1104 : 1103)
+        let feedback = UIImpactFeedbackGenerator(style: .soft)
+        feedback.prepare()
+        feedback.impactOccurred(intensity: 0.22)
     }
 
     private func playPreviewSound() {
-        AudioServicesPlaySystemSound(soundOption == "清脆" ? 1104 : 1103)
+        guard soundOption != "关闭" else { return }
+        let feedback = UIImpactFeedbackGenerator(style: .soft)
+        feedback.prepare()
+        feedback.impactOccurred(intensity: 0.22)
     }
 
     private func compactImageData(_ data: Data) -> Data? {
@@ -1419,6 +1441,81 @@ private struct MessageRow: View {
                 .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
+    }
+}
+
+
+private struct AddContentMenu: View {
+    let onDismiss: () -> Void
+    let onPhoto: () -> Void
+    let onRedPacket: () -> Void
+    let onTransfer: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.22)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onDismiss)
+
+            VStack(spacing: 14) {
+                Capsule()
+                    .fill(Color(hex: 0xD9DEE8))
+                    .frame(width: 34, height: 4)
+                    .padding(.top, 10)
+
+                HStack {
+                    Text("添加内容")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                    Spacer()
+                    Button("取消", action: onDismiss)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                }
+
+                HStack(spacing: 12) {
+                    AddContentMenuItem(symbol: "photo", title: "照片", tint: Color(hex: 0xDCEBFA), action: onPhoto)
+                    AddContentMenuItem(symbol: "gift", title: "虚拟红包", tint: Color(hex: 0xF9E2DF), action: onRedPacket)
+                    AddContentMenuItem(symbol: "yensign.circle", title: "虚拟转账", tint: Color(hex: 0xFBEBD2), action: onTransfer)
+                }
+                .padding(.bottom, 8)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .stroke(Color(hex: 0xE9EDF3), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct AddContentMenuItem: View {
+    let symbol: String
+    let title: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 9) {
+                Image(systemName: symbol)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Macaron.ink)
+                    .frame(width: 54, height: 54)
+                    .background(tint, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Macaron.ink)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
