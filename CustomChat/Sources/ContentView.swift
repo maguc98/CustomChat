@@ -2051,6 +2051,7 @@ private struct AddContactSheet: View {
 private struct FriendProfileSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var contact: ChatContact
+    @State private var avatarSelection: PhotosPickerItem?
     @State private var showMomentEditor = false
     @State private var momentDraft = ""
     @State private var editingMomentID: UUID?
@@ -2066,10 +2067,22 @@ private struct FriendProfileSheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
                     VStack(spacing: 10) {
-                        IdentityAvatar(data: contact.avatarData, name: contact.name, size: 82, tint: Macaron.pink)
-                        Text(contact.name)
-                            .font(.system(size: 21, weight: .bold))
+                        PhotosPicker(selection: $avatarSelection, matching: .images) {
+                            ZStack(alignment: .bottomTrailing) {
+                                IdentityAvatar(data: contact.avatarData, name: contact.name, size: 82, tint: Macaron.pink)
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 25, height: 25)
+                                    .background(Color(hex: 0x83B9EF), in: Circle())
+                                    .overlay(Circle().stroke(.white, lineWidth: 2))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        TextField("好友昵称", text: $contact.name)
+                            .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(Macaron.ink)
+                            .multilineTextAlignment(.center)
                         TextField("好友个性签名", text: $contact.bio, axis: .vertical)
                             .font(.system(size: 13))
                             .foregroundStyle(Macaron.secondary)
@@ -2158,8 +2171,19 @@ private struct FriendProfileSheet: View {
                     }
                 }
             }
+            .onChange(of: contact.name) { _, _ in onUpdate(contact) }
             .onChange(of: contact.bio) { _, _ in onUpdate(contact) }
             .onChange(of: contact.notes) { _, _ in onUpdate(contact) }
+            .onChange(of: avatarSelection) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        contact.avatarData = data
+                        onUpdate(contact)
+                    }
+                    avatarSelection = nil
+                }
+            }
             .sheet(isPresented: $showMomentEditor) {
                 MomentEditorSheet(
                     title: editingMomentID == nil ? "发布好友动态" : "编辑好友动态",
