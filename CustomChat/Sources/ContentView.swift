@@ -481,11 +481,22 @@ struct ContentView: View {
                     }
                 }
             }
-            .background(conversationBackground)
+            .background(
+                conversationBackground,
+                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                    .allowsHitTesting(false)
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
 
             composer
         }
-        .background(conversationBackground)
+        .background(Macaron.background)
     }
 
     private var composer: some View {
