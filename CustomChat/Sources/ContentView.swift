@@ -586,7 +586,7 @@ struct ContentView: View {
                 SimulatedCallView(
                     name: model.name(for: .other),
                     meName: model.name(for: .me),
-                    avatarData: model.identity.otherAvatarData,
+                    avatarData: model.avatar(for: .other),
                     isVideo: call.isVideo
                 ) { duration in
                     model.addCall(isVideo: call.isVideo, duration: duration)
@@ -786,7 +786,7 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                         .frame(width: 30, height: 42)
                 }
-                IdentityAvatar(data: model.identity.otherAvatarData, name: model.name(for: .other), size: 42, tint: Macaron.pink)
+                IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
@@ -805,7 +805,7 @@ struct ContentView: View {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
                 }
                 .accessibilityLabel("模拟视频通话")
-                Button { showIdentitySettings = true } label: {
+                Button { showFriendProfile = true } label: {
                     Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40)
                 }
             }
