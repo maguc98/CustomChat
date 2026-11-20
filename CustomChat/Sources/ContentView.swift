@@ -920,10 +920,13 @@ struct ContentView: View {
                 // or hide the composer as a side effect of a drag gesture.
                 .scrollDismissesKeyboard(.interactively)
                 .onAppear {
-                    if let last = model.messages.last {
-                        DispatchQueue.main.async {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                    // Wait for the conversation container and its safe-area
+                    // insets to finish settling before calculating the bottom.
+                    // An immediate scroll can use the pre-layout content size
+                    // and leave the whole message stack visibly shifted.
+                    guard let lastID = model.messages.last?.id else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        proxy.scrollTo(lastID, anchor: .bottom)
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(
