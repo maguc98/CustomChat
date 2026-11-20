@@ -1151,6 +1151,9 @@ struct ContentView: View {
                                     .font(.system(size: 14))
                                     .foregroundStyle(Macaron.ink)
                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                if let mediaData = post.mediaData {
+                                    MomentMediaView(data: mediaData, mediaType: post.mediaType)
+                                }
                                 Text(post.date, format: .dateTime.year().month().day().hour().minute())
                                     .font(.system(size: 10))
                                     .foregroundStyle(Macaron.secondary)
@@ -1174,13 +1177,17 @@ struct ContentView: View {
                 .sheet(isPresented: $showMyMomentEditor) {
                     MomentEditorSheet(
                         title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
-                        initialText: myMomentDraft
-                    ) { text in
+                        initialText: myMomentDraft,
+                        initialMediaData: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaData },
+                        initialMediaType: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaType }
+                    ) { text, mediaData, mediaType in
                         if let id = editingMyMomentID,
                            let index = model.myMoments.firstIndex(where: { $0.id == id }) {
                             model.myMoments[index].text = text
+                            model.myMoments[index].mediaData = mediaData
+                            model.myMoments[index].mediaType = mediaType
                         } else {
-                            model.myMoments.insert(MomentPost(text: text), at: 0)
+                            model.myMoments.insert(MomentPost(text: text, mediaData: mediaData, mediaType: mediaType), at: 0)
                         }
                     }
                 }
