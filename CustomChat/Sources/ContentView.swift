@@ -668,21 +668,30 @@ struct ContentView: View {
                     .padding(.horizontal, 13)
                     .padding(.bottom, 13)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 8)
-                        .onChanged { value in
-                            if value.translation.height > 12, isComposerVisible {
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    isComposerVisible = false
-                                }
-                            } else if value.translation.height < -12, !isComposerVisible {
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    isComposerVisible = true
-                                }
-                            }
+                // Keep the composer anchored above the keyboard. The message list
+                // owns the remaining height and must not dismiss the keyboard
+                // or hide the composer as a side effect of a drag gesture.
+                .scrollDismissesKeyboard(.never)
+                .onAppear {
+                    if let last = model.messages.last {
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(last.id, anchor: .bottom)
                         }
-                )
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: UIResponder.keyboardWillChangeFrameNotification
+                )) { _ in
+                    // Wait for SwiftUI to apply the keyboard's new safe-area
+                    // size before scrolling, otherwise the final bubble can
+                    // land underneath the composer or keyboard.
+                    guard let lastID = model.messages.last?.id else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                        withAnimation(.easeOut(duration: 0.20)) {
+                            proxy.scrollTo(lastID, anchor: .bottom)
+                        }
+                    }
+                }
                 .onChange(of: model.messages.count) { _, _ in
                     if let last = model.messages.last {
                         withAnimation(.easeOut(duration: 0.22)) {
@@ -705,10 +714,8 @@ struct ContentView: View {
             .padding(.top, 6)
             .padding(.bottom, 6)
 
-            if isComposerVisible {
-                composer
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            composer
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         .background(Macaron.card)
     }
