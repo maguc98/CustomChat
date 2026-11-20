@@ -175,6 +175,7 @@ struct ContentView: View {
     @State private var showIdentitySettings = false
     @State private var searchText = ""
     @State private var draft = ""
+    @State private var isComposerVisible = true
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var myAvatarSelection: PhotosPickerItem?
     @State private var otherAvatarSelection: PhotosPickerItem?
@@ -485,6 +486,20 @@ struct ContentView: View {
                     .padding(.bottom, 13)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { value in
+                            if value.translation.height > 12, isComposerVisible {
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    isComposerVisible = false
+                                }
+                            } else if value.translation.height < -12, !isComposerVisible {
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    isComposerVisible = true
+                                }
+                            }
+                        }
+                )
                 .onChange(of: model.messages.count) { _, _ in
                     if let last = model.messages.last {
                         withAnimation(.easeOut(duration: 0.22)) {
@@ -507,7 +522,10 @@ struct ContentView: View {
             .padding(.top, 6)
             .padding(.bottom, 6)
 
-            composer
+            if isComposerVisible {
+                composer
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .background(Macaron.card)
     }
