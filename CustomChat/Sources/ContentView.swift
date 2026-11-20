@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AudioToolbox
 
 enum ChatRole: String, CaseIterable, Codable {
     case other = "对方"
@@ -28,7 +29,20 @@ struct ChatIdentity: Codable {
     var other = "对方"
     var meAvatarData: Data?
     var otherAvatarData: Data?
-    var callContact = ""
+}
+
+struct CallRecord: Identifiable, Codable {
+    var id: UUID
+    var isVideo: Bool
+    var date: Date
+    var duration: Int
+
+    init(isVideo: Bool, duration: Int) {
+        id = UUID()
+        self.isVideo = isVideo
+        date = .now
+        self.duration = duration
+    }
 }
 
 @MainActor
@@ -36,15 +50,25 @@ private final class ChatModel: ObservableObject {
     @Published var messages: [ChatMessage] = [] { didSet { save() } }
     @Published var activeRole: ChatRole = .me
     @Published var identity = ChatIdentity() { didSet { save() } }
+    @Published var calls: [CallRecord] = [] { didSet { save() } }
 
     private let messagesKey = "customchat.messages.v1"
     private let identityKey = "customchat.identity.v1"
+    private let callsKey = "customchat.calls.v1"
 
     init() {
         if let data = UserDefaults.standard.data(forKey: messagesKey),
-           let value = try? JSONDecoder().decode([ChatMessage].self, from: data) { messages = value }
+           let value = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+            messages = value
+        }
         if let data = UserDefaults.standard.data(forKey: identityKey),
-           let value = try? JSONDecoder().decode(ChatIdentity.self, from: data) { identity = value }
+           let value = try? JSONDecoder().decode(ChatIdentity.self, from: data) {
+            identity = value
+        }
+        if let data = UserDefaults.standard.data(forKey: callsKey),
+           let value = try? JSONDecoder().decode([CallRecord].self, from: data) {
+            calls = value
+        }
     }
 
     func send(_ text: String) {
@@ -53,25 +77,43 @@ private final class ChatModel: ObservableObject {
         messages.append(ChatMessage(text: value, role: activeRole))
     }
 
-    func sendImage(_ data: Data) { messages.append(ChatMessage(role: activeRole, imageData: data)) }
+    func sendImage(_ data: Data) {
+        messages.append(ChatMessage(role: activeRole, imageData: data))
+    }
 
     func update(_ message: ChatMessage, text: String) {
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         messages[index].text = text
     }
 
-    func delete(_ message: ChatMessage) { messages.removeAll { $0.id == message.id } }
+    func delete(_ message: ChatMessage) {
+        messages.removeAll { $0.id == message.id }
+    }
+
+    func addCall(isVideo: Bool, duration: Int) {
+        calls.insert(CallRecord(isVideo: isVideo, duration: duration), at: 0)
+        if calls.count > 100 { calls = Array(calls.prefix(100)) }
+    }
 
     func name(for role: ChatRole) -> String {
         let value = role == .me ? identity.me : identity.other
         return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? role.rawValue : value
     }
 
-    func avatar(for role: ChatRole) -> Data? { role == .me ? identity.meAvatarData : identity.otherAvatarData }
+    func avatar(for role: ChatRole) -> Data? {
+        role == .me ? identity.meAvatarData : identity.otherAvatarData
+    }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(messages) { UserDefaults.standard.set(data, forKey: messagesKey) }
-        if let data = try? JSONEncoder().encode(identity) { UserDefaults.standard.set(data, forKey: identityKey) }
+        if let data = try? JSONEncoder().encode(messages) {
+            UserDefaults.standard.set(data, forKey: messagesKey)
+        }
+        if let data = try? JSONEncoder().encode(identity) {
+            UserDefaults.standard.set(data, forKey: identityKey)
+        }
+        if let data = try? JSONEncoder().encode(calls) {
+            UserDefaults.standard.set(data, forKey: callsKey)
+        }
     }
 }
 
@@ -104,6 +146,16 @@ private enum Macaron {
     static let line = Color(hex: 0xE9EDF3)
 }
 
+private struct SimulatedCall: Identifiable {
+    let id = UUID()
+    let isVideo: Bool
+}
+
+private struct SelectedPhoto: Identifiable {
+    let id = UUID()
+    let data: Data
+}
+
 struct ContentView: View {
     @StateObject private var model = ChatModel()
     @State private var selectedTab: AppTab = .chats
@@ -116,8 +168,44 @@ struct ContentView: View {
     @State private var otherAvatarSelection: PhotosPickerItem?
     @State private var editing: ChatMessage?
     @State private var editText = ""
-    @State private var showContactAlert = false
-    @Environment(\.openURL) private var openURL
+    @State private var activeCall: SimulatedCall?
+    @State private var previewPhoto: SelectedPhoto?
+    @State private var showClearConfirmation = false
+    @State private var showBackgroundPicker = false
+    @State private var showThemePicker = false
+    @State private var showFontPicker = false
+    @State private var showSoundPicker = false
+
+    @AppStorage("customchat.preference.background") private var backgroundOption = "雾蓝白"
+    @AppStorage("customchat.preference.theme") private var themeOption = "浅蓝"
+    @AppStorage("customchat.preference.font") private var fontOption = "标准"
+    @AppStorage("customchat.preference.sound") private var soundOption = "轻柔"
+
+    private var accentColor: Color {
+        switch themeOption {
+        case "樱花粉": return Color(hex: 0xF0B8D2)
+        case "薄荷绿": return Color(hex: 0xA9DCC5)
+        case "薰衣草紫": return Color(hex: 0xC9B9ED)
+        default: return Macaron.blueStrong
+        }
+    }
+
+    private var messageFontSize: CGFloat {
+        switch fontOption {
+        case "偏小": return 14
+        case "偏大": return 18
+        default: return 16
+        }
+    }
+
+    private var conversationBackground: Color {
+        switch backgroundOption {
+        case "奶油白": return Color(hex: 0xFBF8F1)
+        case "淡粉": return Color(hex: 0xFCF1F6)
+        case "薄荷绿": return Color(hex: 0xF0F8F3)
+        default: return Macaron.background
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -132,11 +220,28 @@ struct ContentView: View {
         }
         .preferredColorScheme(.light)
         .sheet(isPresented: $showIdentitySettings) { settingsSheet }
+        .sheet(item: $previewPhoto) { photo in
+            PhotoPreviewView(data: photo.data)
+        }
+        .fullScreenCover(item: $activeCall) { call in
+            SimulatedCallView(
+                name: model.name(for: .other),
+                meName: model.name(for: .me),
+                avatarData: model.identity.otherAvatarData,
+                isVideo: call.isVideo
+            ) { duration in
+                model.addCall(isVideo: call.isVideo, duration: duration)
+                activeCall = nil
+            }
+        }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
-                   let compact = compactImageData(data) { model.sendImage(compact) }
+                   let compact = compactImageData(data) {
+                    model.sendImage(compact)
+                    playMessageSound()
+                }
                 selectedPhoto = nil
             }
         }
@@ -144,7 +249,9 @@ struct ContentView: View {
             guard let item else { return }
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
-                   let compact = compactImageData(data) { model.identity.meAvatarData = compact }
+                   let compact = compactImageData(data) {
+                    model.identity.meAvatarData = compact
+                }
                 myAvatarSelection = nil
             }
         }
@@ -152,17 +259,47 @@ struct ContentView: View {
             guard let item else { return }
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),
-                   let compact = compactImageData(data) { model.identity.otherAvatarData = compact }
+                   let compact = compactImageData(data) {
+                    model.identity.otherAvatarData = compact
+                }
                 otherAvatarSelection = nil
             }
         }
-        .alert("还没有设置联系方式", isPresented: $showContactAlert) {
-            Button("取消", role: .cancel) {}
-            Button("去设置") { showIdentitySettings = true }
-        } message: {
-            Text("请先填写对方的手机号或 FaceTime 邮箱。")
+        .confirmationDialog("聊天背景", isPresented: $showBackgroundPicker, titleVisibility: .visible) {
+            ForEach(["雾蓝白", "奶油白", "淡粉", "薄荷绿"], id: \.self) { option in
+                Button(option) { backgroundOption = option }
+            }
         }
-        .alert("编辑消息", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+        .confirmationDialog("主题颜色", isPresented: $showThemePicker, titleVisibility: .visible) {
+            ForEach(["浅蓝", "樱花粉", "薄荷绿", "薰衣草紫"], id: \.self) { option in
+                Button(option) { themeOption = option }
+            }
+        }
+        .confirmationDialog("字体大小", isPresented: $showFontPicker, titleVisibility: .visible) {
+            ForEach(["偏小", "标准", "偏大"], id: \.self) { option in
+                Button(option) { fontOption = option }
+            }
+        }
+        .confirmationDialog("消息提示音", isPresented: $showSoundPicker, titleVisibility: .visible) {
+            ForEach(["轻柔", "清脆", "关闭"], id: \.self) { option in
+                Button(option) {
+                    soundOption = option
+                    if option != "关闭" { playPreviewSound() }
+                }
+            }
+        }
+        .alert("清空聊天记录？", isPresented: $showClearConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("清空", role: .destructive) {
+                model.messages.removeAll()
+            }
+        } message: {
+            Text("此操作会删除本机保存的全部消息和图片，无法撤销。")
+        }
+        .alert("编辑消息", isPresented: Binding(
+            get: { editing != nil },
+            set: { if !$0 { editing = nil } }
+        )) {
             TextField("消息内容", text: $editText)
             Button("取消", role: .cancel) { editing = nil }
             Button("保存") {
@@ -201,7 +338,7 @@ struct ContentView: View {
                         .frame(width: 46, height: 46)
                         .background(Macaron.blue, in: Circle())
                 }
-                .accessibilityLabel("新建聊天")
+                .accessibilityLabel("编辑当前聊天资料")
             }
             .padding(.horizontal, 22)
             .padding(.top, 14)
@@ -214,6 +351,7 @@ struct ContentView: View {
                 TextField("搜索聊天", text: $searchText)
                     .font(.system(size: 15))
                     .foregroundStyle(Macaron.ink)
+                    .autocorrectionDisabled()
             }
             .padding(.horizontal, 16)
             .frame(height: 50)
@@ -222,23 +360,35 @@ struct ContentView: View {
             .padding(.bottom, 20)
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 10) {
-                    Button { withAnimation(.easeInOut(duration: 0.22)) { showConversation = true } } label: {
-                        ChatListRow(
-                            name: model.name(for: .other),
-                            preview: model.messages.last.map { $0.imageData == nil ? $0.text : "发来了一张图片" } ?? "开始你们的第一段对话",
-                            time: model.messages.last?.time.formatted(date: .omitted, time: .shortened) ?? "现在",
-                            unread: 0,
-                            avatarData: model.identity.otherAvatarData,
-                            tint: Macaron.pink,
-                            isOnline: true
-                        )
-                    }
-                    .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("最近聊天")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Macaron.secondary)
+                        .padding(.horizontal, 5)
 
-                    ChatListRow(name: "阿辰", preview: "视频通话已结束 · 12 分钟", time: "08:52", unread: 0, avatarData: nil, tint: Macaron.blue, icon: "video")
-                    ChatListRow(name: "甜甜", preview: "发来了一张图片", time: "昨天", unread: 0, avatarData: nil, tint: Macaron.mint, icon: "photo")
-                    ChatListRow(name: "旅行计划", preview: "周末去海边吧！", time: "周二", unread: 0, avatarData: nil, tint: Macaron.lavender, icon: "airplane")
+                    if model.name(for: .other).localizedCaseInsensitiveContains(searchText)
+                        || "聊天".localizedCaseInsensitiveContains(searchText)
+                        || searchText.isEmpty {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.22)) { showConversation = true }
+                        } label: {
+                            ChatListRow(
+                                name: model.name(for: .other),
+                                preview: model.messages.last.map {
+                                    $0.imageData == nil ? $0.text : "发来了一张图片"
+                                } ?? "开始你们的第一段对话",
+                                time: model.messages.last?.time.formatted(date: .omitted, time: .shortened) ?? "现在",
+                                avatarData: model.identity.otherAvatarData,
+                                tint: Macaron.pink,
+                                isOnline: true,
+                                accentColor: accentColor
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        EmptyHint(symbol: "magnifyingglass", title: "没有找到聊天", subtitle: "试试对方的昵称。")
+                            .padding(.top, 50)
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.bottom, 18)
@@ -250,7 +400,9 @@ struct ContentView: View {
     private var conversationView: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Button { withAnimation(.easeInOut(duration: 0.22)) { showConversation = false } } label: {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.22)) { showConversation = false }
+                } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 19, weight: .medium))
                         .foregroundStyle(Macaron.ink)
@@ -263,13 +415,21 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                     HStack(spacing: 5) {
                         Circle().fill(Color(hex: 0x55C987)).frame(width: 7, height: 7)
-                        Text("在线").font(.system(size: 12)).foregroundStyle(Macaron.secondary)
+                        Text("本地模拟聊天").font(.system(size: 12)).foregroundStyle(Macaron.secondary)
                     }
                 }
                 Spacer()
-                Button { startCall(video: false) } label: { Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40) }
-                Button { startCall(video: true) } label: { Image(systemName: "video").font(.system(size: 20)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40) }
-                Button { showIdentitySettings = true } label: { Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40) }
+                Button { beginCall(video: false) } label: {
+                    Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
+                }
+                .accessibilityLabel("模拟语音通话")
+                Button { beginCall(video: true) } label: {
+                    Image(systemName: "video").font(.system(size: 20)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
+                }
+                .accessibilityLabel("模拟视频通话")
+                Button { showIdentitySettings = true } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40)
+                }
             }
             .padding(.horizontal, 17)
             .padding(.top, 8)
@@ -290,15 +450,8 @@ struct ContentView: View {
                             .padding(.top, 18)
 
                         if model.messages.isEmpty {
-                            VStack(spacing: 8) {
-                                Image(systemName: "bubble.left")
-                                    .font(.system(size: 30, weight: .light))
-                                    .foregroundStyle(Color(hex: 0x9ABFE4))
-                                Text("从这里开始聊天")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(Macaron.secondary)
-                            }
-                            .padding(.top, 110)
+                            EmptyHint(symbol: "bubble.left", title: "从这里开始聊天", subtitle: "切换发送身份，发送文字或图片。")
+                                .padding(.top, 100)
                         } else {
                             ForEach(model.messages) { message in
                                 MessageRow(
@@ -306,8 +459,11 @@ struct ContentView: View {
                                     name: model.name(for: message.role),
                                     avatarData: model.avatar(for: message.role),
                                     isMe: message.role == .me,
+                                    fontSize: messageFontSize,
+                                    outgoingColor: accentColor,
                                     onEdit: { editing = message; editText = message.text },
-                                    onDelete: { model.delete(message) }
+                                    onDelete: { model.delete(message) },
+                                    onImageTap: { data in previewPhoto = SelectedPhoto(data: data) }
                                 )
                                 .id(message.id)
                             }
@@ -316,16 +472,20 @@ struct ContentView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 20)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.messages.count) { _, _ in
                     if let last = model.messages.last {
-                        withAnimation(.easeOut(duration: 0.22)) { proxy.scrollTo(last.id, anchor: .bottom) }
+                        withAnimation(.easeOut(duration: 0.22)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
             }
+            .background(conversationBackground)
 
             composer
         }
-        .background(Macaron.background)
+        .background(conversationBackground)
     }
 
     private var composer: some View {
@@ -341,7 +501,12 @@ struct ContentView: View {
                             .foregroundStyle(Macaron.ink)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(model.activeRole == role ? (role == .me ? Macaron.blue : Macaron.pink) : Color(hex: 0xF0F2F6), in: Capsule())
+                            .background(
+                                model.activeRole == role
+                                    ? (role == .me ? accentColor.opacity(0.62) : Macaron.pink)
+                                    : Color(hex: 0xF0F2F6),
+                                in: Capsule()
+                            )
                     }
                     .buttonStyle(.plain)
                 }
@@ -353,11 +518,13 @@ struct ContentView: View {
                         .font(.system(size: 19, weight: .medium))
                         .foregroundStyle(Color(hex: 0x5D9FE2))
                         .frame(width: 42, height: 44)
-                        .background(Macaron.blue, in: Circle())
+                        .background(accentColor.opacity(0.55), in: Circle())
                 }
+                .accessibilityLabel("发送图片")
+
                 HStack(spacing: 8) {
                     TextField("输入消息...", text: $draft, axis: .vertical)
-                        .font(.system(size: 15))
+                        .font(.system(size: fontOption == "偏大" ? 17 : 15))
                         .foregroundStyle(Macaron.ink)
                         .lineLimit(1...4)
                         .onSubmit(sendText)
@@ -366,7 +533,7 @@ struct ContentView: View {
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 31, height: 31)
-                            .background(Color(hex: 0x8FC7FF), in: Circle())
+                            .background(accentColor.opacity(0.95), in: Circle())
                     }
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.35 : 1)
@@ -385,110 +552,180 @@ struct ContentView: View {
     }
 
     private var profileView: some View {
-        VStack(spacing: 20) {
-            Text("我的设置")
-                .font(.system(size: 25, weight: .bold))
-                .foregroundStyle(Macaron.ink)
-                .padding(.top, 22)
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 18) {
+                Text("我的设置")
+                    .font(.system(size: 25, weight: .bold))
+                    .foregroundStyle(Macaron.ink)
+                    .padding(.top, 22)
 
-            VStack(spacing: 10) {
-                ProfileIdentityCard(title: "我的昵称", name: model.name(for: .me), avatarData: model.identity.meAvatarData, tint: Macaron.blue) {
-                    showIdentitySettings = true
-                }
-                ProfileIdentityCard(title: "对方昵称", name: model.name(for: .other), avatarData: model.identity.otherAvatarData, tint: Macaron.pink) {
-                    showIdentitySettings = true
-                }
-            }
-            .padding(.horizontal, 18)
+                VStack(spacing: 10) {
+                    ProfileIdentityCard(
+                        title: "我的昵称",
+                        name: model.name(for: .me),
+                        avatarData: model.identity.meAvatarData,
+                        tint: Macaron.blue
+                    ) { showIdentitySettings = true }
 
-            VStack(spacing: 0) {
-                SettingsRow(symbol: "photo", title: "聊天背景", value: "默认", tint: Color(hex: 0x83B9EF)) { }
-                Divider().overlay(Macaron.line).padding(.leading, 54)
-                SettingsRow(symbol: "paintpalette", title: "主题色", value: "浅蓝", tint: Color(hex: 0xC18AD8)) { }
-                Divider().overlay(Macaron.line).padding(.leading, 54)
-                SettingsRow(symbol: "textformat.size", title: "字体大小", value: "标准", tint: Color(hex: 0x83B9EF)) { }
-                Divider().overlay(Macaron.line).padding(.leading, 54)
-                SettingsRow(symbol: "bell", title: "消息提示音", value: "默认", tint: Color(hex: 0xE6A5C7)) { }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 4)
-            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
-            .padding(.horizontal, 18)
-
-            Button { showIdentitySettings = true } label: {
-                HStack {
-                    Image(systemName: "gearshape")
-                        .foregroundStyle(Color(hex: 0x83B9EF))
-                    Text("更多设置")
-                        .foregroundStyle(Macaron.ink)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Macaron.secondary)
+                    ProfileIdentityCard(
+                        title: "对方昵称",
+                        name: model.name(for: .other),
+                        avatarData: model.identity.otherAvatarData,
+                        tint: Macaron.pink
+                    ) { showIdentitySettings = true }
                 }
-                .font(.system(size: 15, weight: .medium))
-                .padding(18)
+                .padding(.horizontal, 18)
+
+                VStack(spacing: 0) {
+                    SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
+                        showBackgroundPicker = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    SettingsRow(symbol: "paintpalette", title: "主题色", value: themeOption, tint: Color(hex: 0xC18AD8)) {
+                        showThemePicker = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    SettingsRow(symbol: "textformat.size", title: "字体大小", value: fontOption, tint: Color(hex: 0x83B9EF)) {
+                        showFontPicker = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    SettingsRow(symbol: "bell", title: "消息提示音", value: soundOption, tint: Color(hex: 0xE6A5C7)) {
+                        showSoundPicker = true
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 4)
+                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+                .padding(.horizontal, 18)
+
+                VStack(spacing: 0) {
+                    Button { showIdentitySettings = true } label: {
+                        SettingsLine(symbol: "person.crop.circle", title: "编辑双方资料")
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
+                    Button { showClearConfirmation = true } label: {
+                        SettingsLine(symbol: "trash", title: "清空聊天记录", tint: Color(hex: 0xD9829F))
+                    }
+                }
+                .padding(.horizontal, 18)
                 .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.horizontal, 18)
+
+                Text("CustomChat · 本地双身份聊天")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Macaron.secondary)
+                    .padding(.top, 3)
+                    .padding(.bottom, 18)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 18)
-            Spacer()
         }
     }
 
     private var callsView: some View {
-        VStack(spacing: 18) {
-            Text("通话")
-                .font(.system(size: 25, weight: .bold))
-                .foregroundStyle(Macaron.ink)
-                .padding(.top, 22)
-            Image(systemName: "phone")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(Color(hex: 0x78B6EF))
-                .frame(width: 76, height: 76)
-                .background(Macaron.blue, in: Circle())
-                .padding(.top, 90)
-            Text("还没有通话记录")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Macaron.secondary)
-            Button("呼叫 \(model.name(for: .other))") { startCall(video: false) }
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x438FDC))
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                Text("通话")
+                    .font(.system(size: 25, weight: .bold))
+                    .foregroundStyle(Macaron.ink)
+                    .padding(.top, 22)
+
+                VStack(spacing: 12) {
+                    Image(systemName: "phone.badge.waveform")
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundStyle(Color(hex: 0x5D9FE2))
+                        .frame(width: 72, height: 72)
+                        .background(Macaron.blue, in: Circle())
+                    Text("模拟通话")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                    Text("所有通话只在 App 内演示，不会拨打真实电话，也不会调用摄像头或麦克风。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 10) {
+                        Button { beginCall(video: false) } label: {
+                            Label("语音", systemImage: "phone")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Macaron.blue, in: Capsule())
+                        }
+                        Button { beginCall(video: true) } label: {
+                            Label("视频", systemImage: "video")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Macaron.pink, in: Capsule())
+                        }
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Macaron.ink)
+                }
+                .padding(18)
+                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .background(Macaron.blue, in: Capsule())
-            Spacer()
+
+                HStack {
+                    Text("最近通话")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                    Spacer()
+                    Text("仅本机保存")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 5)
+
+                if model.calls.isEmpty {
+                    EmptyHint(symbol: "clock", title: "还没有模拟通话", subtitle: "完成一次 App 内模拟通话后，会显示在这里。")
+                        .padding(.top, 18)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(model.calls) { call in
+                            CallHistoryRow(record: call, name: model.name(for: .other))
+                            if call.id != model.calls.last?.id {
+                                Divider().overlay(Macaron.line).padding(.leading, 70)
+                            }
+                        }
+                    }
+                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .padding(.horizontal, 18)
+                }
+                Spacer(minLength: 20)
+            }
         }
     }
 
     private var albumView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
             Text("相册")
                 .font(.system(size: 25, weight: .bold))
                 .foregroundStyle(Macaron.ink)
                 .padding(.top, 22)
-            if model.messages.contains(where: { $0.imageData != nil }) {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 5) {
-                        ForEach(model.messages.filter { $0.imageData != nil }) { message in
+                .padding(.bottom, 18)
+
+            let imageMessages = model.messages.filter { $0.imageData != nil }
+            if imageMessages.isEmpty {
+                EmptyHint(symbol: "photo", title: "还没有图片", subtitle: "在聊天中发送的图片会自动收录到这里。")
+                    .padding(.top, 100)
+                Spacer()
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 7) {
+                        ForEach(imageMessages) { message in
                             if let data = message.imageData, let image = UIImage(data: data) {
-                                Image(uiImage: image).resizable().scaledToFill().frame(height: 112).clipped().clipShape(RoundedRectangle(cornerRadius: 10))
+                                Button { previewPhoto = SelectedPhoto(data: data) } label: {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(height: 112)
+                                        .clipped()
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
                     .padding(16)
                 }
-            } else {
-                Image(systemName: "photo")
-                    .font(.system(size: 32, weight: .light))
-                    .foregroundStyle(Color(hex: 0x83B9EF))
-                    .frame(width: 76, height: 76)
-                    .background(Macaron.blue, in: Circle())
-                    .padding(.top, 100)
-                Text("聊天中的图片会显示在这里")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Macaron.secondary)
-                Spacer()
             }
         }
     }
@@ -500,14 +737,17 @@ struct ContentView: View {
                     VStack(spacing: 5) {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 21, weight: selectedTab == tab ? .semibold : .regular))
-                        Text(tab.rawValue).font(.system(size: 11, weight: selectedTab == tab ? .semibold : .regular))
+                        Text(tab.rawValue)
+                            .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .regular))
                     }
                     .foregroundStyle(selectedTab == tab ? Color(hex: 0x4F9DE8) : Macaron.secondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 62)
                     .background {
                         if selectedTab == tab {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Macaron.blue.opacity(0.68)).padding(.horizontal, 5)
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(accentColor.opacity(0.38))
+                                .padding(.horizontal, 5)
                         }
                     }
                 }
@@ -524,21 +764,32 @@ struct ContentView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
-                    identityEditor(title: "我的资料", name: $model.identity.me, avatarData: model.identity.meAvatarData, selection: $myAvatarSelection, tint: Macaron.blue)
-                    identityEditor(title: "对方资料", name: $model.identity.other, avatarData: model.identity.otherAvatarData, selection: $otherAvatarSelection, tint: Macaron.pink)
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text("通话联系方式").font(.system(size: 14, weight: .semibold)).foregroundStyle(Macaron.ink)
-                        TextField("手机号或 FaceTime 邮箱", text: $model.identity.callContact)
-                            .font(.system(size: 14))
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .padding(14)
-                            .background(Macaron.background, in: RoundedRectangle(cornerRadius: 13))
+                    identityEditor(
+                        title: "我的资料",
+                        name: $model.identity.me,
+                        avatarData: model.identity.meAvatarData,
+                        selection: $myAvatarSelection,
+                        tint: Macaron.blue
+                    )
+                    identityEditor(
+                        title: "对方资料",
+                        name: $model.identity.other,
+                        avatarData: model.identity.otherAvatarData,
+                        selection: $otherAvatarSelection,
+                        tint: Macaron.pink
+                    )
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("通话功能说明")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        Text("语音和视频通话仅为界面模拟，不会连接系统电话、FaceTime，也不会访问设备摄像头或麦克风。")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Macaron.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(15)
-                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20))
-                    Text("昵称、头像和聊天记录保存在这台设备上。")
+                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18))
+                    Text("昵称、头像、消息和模拟通话记录均保存在这台设备上。")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
                 }
@@ -549,7 +800,8 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { showIdentitySettings = false }.fontWeight(.semibold)
+                    Button("完成") { showIdentitySettings = false }
+                        .fontWeight(.semibold)
                 }
             }
         }
@@ -557,7 +809,13 @@ struct ContentView: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func identityEditor(title: String, name: Binding<String>, avatarData: Data?, selection: Binding<PhotosPickerItem?>, tint: Color) -> some View {
+    private func identityEditor(
+        title: String,
+        name: Binding<String>,
+        avatarData: Data?,
+        selection: Binding<PhotosPickerItem?>,
+        tint: Color
+    ) -> some View {
         HStack(spacing: 14) {
             PhotosPicker(selection: selection, matching: .images) {
                 ZStack(alignment: .bottomTrailing) {
@@ -572,7 +830,9 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 7) {
-                Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Macaron.secondary)
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Macaron.secondary)
                 TextField("输入昵称", text: name)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Macaron.ink)
@@ -584,19 +844,24 @@ struct ContentView: View {
         .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20))
     }
 
-    private func sendText() { model.send(draft); draft = "" }
+    private func beginCall(video: Bool) {
+        activeCall = SimulatedCall(isVideo: video)
+    }
 
-    private func startCall(video: Bool) {
-        let contact = model.identity.callContact.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !contact.isEmpty else { showContactAlert = true; return }
-        let url: URL?
-        if video { url = URL(string: "facetime://\(contact)") }
-        else if contact.contains("@") { url = URL(string: "facetime-audio://\(contact)") }
-        else {
-            let digits = contact.filter { $0.isNumber || $0 == "+" }
-            url = URL(string: "tel:\(digits)")
-        }
-        if let url { openURL(url) } else { showContactAlert = true }
+    private func sendText() {
+        let previousCount = model.messages.count
+        model.send(draft)
+        draft = ""
+        if model.messages.count > previousCount { playMessageSound() }
+    }
+
+    private func playMessageSound() {
+        guard soundOption != "关闭" else { return }
+        AudioServicesPlaySystemSound(soundOption == "清脆" ? 1104 : 1103)
+    }
+
+    private func playPreviewSound() {
+        AudioServicesPlaySystemSound(soundOption == "清脆" ? 1104 : 1103)
     }
 
     private func compactImageData(_ data: Data) -> Data? {
@@ -608,7 +873,9 @@ struct ContentView: View {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.78)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }.jpegData(compressionQuality: 0.78)
     }
 }
 
@@ -616,33 +883,40 @@ private struct ChatListRow: View {
     let name: String
     let preview: String
     let time: String
-    let unread: Int
     let avatarData: Data?
     let tint: Color
     var isOnline = false
-    var icon: String? = nil
+    let accentColor: Color
 
     var body: some View {
         HStack(spacing: 13) {
             ZStack(alignment: .bottomTrailing) {
                 IdentityAvatar(data: avatarData, name: name, size: 61, tint: tint)
                 if isOnline {
-                    Circle().fill(Color(hex: 0x55C987)).frame(width: 12, height: 12).overlay(Circle().stroke(.white, lineWidth: 2))
+                    Circle()
+                        .fill(Color(hex: 0x55C987))
+                        .frame(width: 12, height: 12)
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
                 }
             }
             VStack(alignment: .leading, spacing: 7) {
-                Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(Macaron.ink)
-                Text(preview.isEmpty ? " " : preview).font(.system(size: 13)).foregroundStyle(Macaron.secondary).lineLimit(1)
+                Text(name)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Macaron.ink)
+                Text(preview.isEmpty ? " " : preview)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Macaron.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 4)
             VStack(alignment: .trailing, spacing: 8) {
-                Text(time).font(.system(size: 12)).foregroundStyle(Macaron.secondary)
-                if unread > 0 {
-                    Text("\(unread)").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
-                        .frame(width: 21, height: 21).background(Color(hex: 0xF28AB6), in: Circle())
-                } else if let icon {
-                    Image(systemName: icon).font(.system(size: 17)).foregroundStyle(Color(hex: 0x9AA8BC))
-                }
+                Text(time)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Macaron.secondary)
+                Circle()
+                    .fill(accentColor)
+                    .frame(width: 8, height: 8)
+                    .opacity(isOnline ? 1 : 0)
             }
         }
         .padding(.horizontal, 15)
@@ -667,7 +941,9 @@ private struct ProfileIdentityCard: View {
                     Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(Macaron.ink)
                 }
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(Macaron.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Macaron.secondary)
             }
             .padding(17)
             .background(Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -686,16 +962,104 @@ private struct SettingsRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 13) {
-                Image(systemName: symbol).font(.system(size: 19)).foregroundStyle(tint).frame(width: 28)
-                Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(Macaron.ink)
+                Image(systemName: symbol)
+                    .font(.system(size: 19))
+                    .foregroundStyle(tint)
+                    .frame(width: 28)
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Macaron.ink)
                 Spacer()
-                Text(value).font(.system(size: 13)).foregroundStyle(Macaron.secondary)
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Macaron.secondary)
+                Text(value)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Macaron.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Macaron.secondary)
             }
             .padding(.horizontal, 16)
             .frame(height: 57)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct SettingsLine: View {
+    let symbol: String
+    let title: String
+    var tint: Color = Color(hex: 0x83B9EF)
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: symbol).foregroundStyle(tint).frame(width: 28)
+            Text(title).foregroundStyle(Macaron.ink)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Macaron.secondary)
+        }
+        .font(.system(size: 15, weight: .medium))
+        .padding(.horizontal, 16)
+        .frame(height: 55)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct CallHistoryRow: View {
+    let record: CallRecord
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: record.isVideo ? "video" : "phone")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(record.isVideo ? Color(hex: 0xD99ABF) : Color(hex: 0x74AEE3))
+                .frame(width: 42, height: 42)
+                .background(record.isVideo ? Macaron.pink : Macaron.blue, in: Circle())
+            VStack(alignment: .leading, spacing: 5) {
+                Text(name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Macaron.ink)
+                Text("\(record.isVideo ? "模拟视频通话" : "模拟语音通话") · \(durationText(record.duration))")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Macaron.secondary)
+            }
+            Spacer()
+            Text(record.date, format: .dateTime.month(.twoDigits).day().hour().minute())
+                .font(.system(size: 11))
+                .foregroundStyle(Macaron.secondary)
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 12)
+    }
+
+    private func durationText(_ seconds: Int) -> String {
+        String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct EmptyHint: View {
+    let symbol: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 9) {
+            Image(systemName: symbol)
+                .font(.system(size: 29, weight: .light))
+                .foregroundStyle(Color(hex: 0x91B8DE))
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Macaron.ink)
+            Text(subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(Macaron.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 28)
     }
 }
 
@@ -712,7 +1076,9 @@ private struct IdentityAvatar: View {
             } else {
                 ZStack {
                     Circle().fill(tint)
-                    Text(String(name.prefix(1))).font(.system(size: size * 0.39, weight: .semibold)).foregroundStyle(Color(hex: 0x55718E))
+                    Text(String(name.prefix(1)))
+                        .font(.system(size: size * 0.39, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x55718E))
                 }
             }
         }
@@ -727,8 +1093,11 @@ private struct MessageRow: View {
     let name: String
     let avatarData: Data?
     let isMe: Bool
+    let fontSize: CGFloat
+    let outgoingColor: Color
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onImageTap: (Data) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -739,30 +1108,250 @@ private struct MessageRow: View {
             VStack(alignment: isMe ? .trailing : .leading, spacing: 5) {
                 VStack(alignment: isMe ? .trailing : .leading, spacing: 7) {
                     if let data = message.imageData, let image = UIImage(data: data) {
-                        Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: 230, maxHeight: 290)
-                            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        Button { onImageTap(data) } label: {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 230, maxHeight: 290)
+                                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
                     }
                     if !message.text.isEmpty {
-                        Text(message.text).font(.system(size: 16)).foregroundStyle(Macaron.ink)
+                        Text(message.text)
+                            .font(.system(size: fontSize))
+                            .foregroundStyle(Macaron.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding(.horizontal, message.imageData == nil ? 15 : 8)
                 .padding(.vertical, message.imageData == nil ? 12 : 8)
-                .background(isMe ? Macaron.blue : Macaron.card, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 21, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
+                .background(
+                    isMe ? outgoingColor.opacity(0.62) : Macaron.card,
+                    in: RoundedRectangle(cornerRadius: 21, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 21, style: .continuous)
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                )
                 .frame(maxWidth: 275, alignment: isMe ? .trailing : .leading)
                 .contextMenu {
-                    if !message.text.isEmpty { Button("编辑", systemImage: "pencil", action: onEdit) }
+                    if !message.text.isEmpty {
+                        Button("编辑", systemImage: "pencil", action: onEdit)
+                    }
                     Button("删除", systemImage: "trash", role: .destructive, action: onDelete)
                 }
                 Text(message.time, format: .dateTime.hour().minute())
-                    .font(.system(size: 10)).foregroundStyle(Macaron.secondary).padding(.horizontal, 5)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Macaron.secondary)
+                    .padding(.horizontal, 5)
             }
-            if isMe { IdentityAvatar(data: avatarData, name: name, size: 34, tint: Macaron.blue) }
-            else { Spacer(minLength: 55) }
+            if isMe {
+                IdentityAvatar(data: avatarData, name: name, size: 34, tint: Macaron.blue)
+            } else {
+                Spacer(minLength: 55)
+            }
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+private struct PhotoPreviewView: View {
+    let data: Data
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black)
+                } else {
+                    ContentUnavailableView("无法显示图片", systemImage: "photo")
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct SimulatedCallView: View {
+    let name: String
+    let meName: String
+    let avatarData: Data?
+    let isVideo: Bool
+    let onEnd: (Int) -> Void
+
+    @State private var isConnected = false
+    @State private var isMuted = false
+    @State private var isSpeakerOn = true
+    @State private var isCameraOn = true
+    @State private var connectedAt: Date?
+    @State private var didEnd = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(hex: 0xF4F7FC), Color(hex: 0xE8F1FB), Color(hex: 0xF9EFF5)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text(isVideo ? "模拟视频通话" : "模拟语音通话")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Macaron.secondary)
+                    Spacer()
+                    Text("仅 App 内演示")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.white.opacity(0.75), in: Capsule())
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 18)
+
+                Spacer()
+
+                if isVideo {
+                    VStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                                .fill(Color(hex: 0xDDEAF7))
+                            if isCameraOn {
+                                VStack(spacing: 14) {
+                                    IdentityAvatar(data: avatarData, name: name, size: 118, tint: Macaron.pink)
+                                    Text(name)
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundStyle(Macaron.ink)
+                                    Text("模拟视频画面")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Macaron.secondary)
+                                }
+                            } else {
+                                VStack(spacing: 10) {
+                                    Image(systemName: "video.slash")
+                                        .font(.system(size: 34, weight: .light))
+                                    Text("摄像头画面已关闭")
+                                        .font(.system(size: 14, weight: .medium))
+                                }
+                                .foregroundStyle(Macaron.secondary)
+                            }
+                        }
+                        .frame(height: 390)
+                        .overlay(alignment: .bottomTrailing) {
+                            VStack(spacing: 6) {
+                                IdentityAvatar(data: nil, name: meName, size: 44, tint: Macaron.blue)
+                                Text("我")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(Macaron.ink)
+                            }
+                            .padding(12)
+                            .background(.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 18))
+                            .padding(14)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                } else {
+                    VStack(spacing: 18) {
+                        IdentityAvatar(data: avatarData, name: name, size: 126, tint: Macaron.pink)
+                            .shadow(color: Color(hex: 0xA8C8E8).opacity(0.35), radius: 22, y: 8)
+                        Text(name)
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                    }
+                }
+
+                VStack(spacing: 8) {
+                    Text(isConnected ? callDurationText : "正在呼叫…")
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundStyle(Macaron.ink)
+                    Text(isConnected ? "模拟通话已接通" : "等待模拟接通")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                .padding(.top, 26)
+
+                Spacer()
+
+                HStack(spacing: 24) {
+                    CallControlButton(symbol: isMuted ? "mic.slash.fill" : "mic.fill", title: "静音", isActive: isMuted) {
+                        isMuted.toggle()
+                    }
+                    CallControlButton(symbol: isSpeakerOn ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "扬声器", isActive: isSpeakerOn) {
+                        isSpeakerOn.toggle()
+                    }
+                    if isVideo {
+                        CallControlButton(symbol: isCameraOn ? "video.fill" : "video.slash.fill", title: "摄像头", isActive: isCameraOn) {
+                            isCameraOn.toggle()
+                        }
+                    }
+                }
+                .padding(.bottom, 28)
+
+                Button(action: endCall) {
+                    Image(systemName: "phone.down.fill")
+                        .font(.system(size: 23, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 68, height: 68)
+                        .background(Color(hex: 0xE8788D), in: Circle())
+                }
+                .accessibilityLabel("结束模拟通话")
+                .padding(.bottom, 35)
+            }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard !didEnd else { return }
+            connectedAt = .now
+            withAnimation(.easeInOut(duration: 0.25)) { isConnected = true }
+        }
+    }
+
+    private var callDurationText: String {
+        guard let connectedAt else { return "00:00" }
+        let seconds = max(0, Int(Date.now.timeIntervalSince(connectedAt)))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func endCall() {
+        guard !didEnd else { return }
+        didEnd = true
+        let duration = connectedAt.map { max(0, Int(Date.now.timeIntervalSince($0))) } ?? 0
+        onEnd(duration)
+    }
+}
+
+private struct CallControlButton: View {
+    let symbol: String
+    let title: String
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(Macaron.ink)
+                    .frame(width: 58, height: 58)
+                    .background(isActive ? Macaron.blue : Color.white.opacity(0.88), in: Circle())
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Macaron.secondary)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -775,3 +1364,4 @@ private extension Color {
         )
     }
 }
+
