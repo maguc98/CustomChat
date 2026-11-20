@@ -312,7 +312,7 @@ struct ContentView: View {
 
             Text("从这里开始记录你们的对话。\n可以切换身份、发送文字和图片。")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(ink.opacity(0.55))
+                .foregroundStyle(ink.opacity(0.94))
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
 
@@ -389,6 +389,7 @@ struct ContentView: View {
                     TextField("发送一条消息…", text: $draft, axis: .vertical)
                         .font(.system(size: 15, weight: .regular, design: .rounded))
                         .foregroundStyle(ink)
+                        .tint(rose)
                         .lineLimit(1...5)
                         .padding(.vertical, 12)
                         .onSubmit(sendText)
@@ -598,7 +599,7 @@ private struct HeaderAction: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 37, height: 37)
-                .background(Color.white.opacity(0.20), in: Circle())
+                .background(tint.opacity(0.32), in: Circle())
                 .overlay(Circle().stroke(Color.white.opacity(0.38), lineWidth: 1))
         }
         .buttonStyle(.plain)
