@@ -277,9 +277,10 @@ struct ChatContact: Identifiable, Codable {
     var moments: [MomentPost]
     var isGroup: Bool?
     var memberIDs: [UUID]?
+    var walletBalance: Double?
 
     init(id: UUID = UUID(), name: String, avatarData: Data? = nil,
-         bio: String = "分享生活，记录日常。", notes: String = "", moments: [MomentPost] = [], isGroup: Bool = false, memberIDs: [UUID] = []) {
+         bio: String = "分享生活，记录日常。", notes: String = "", moments: [MomentPost] = [], isGroup: Bool = false, memberIDs: [UUID] = [], walletBalance: Double? = 1000) {
         self.id = id
         self.name = name
         self.avatarData = avatarData
@@ -288,6 +289,7 @@ struct ChatContact: Identifiable, Codable {
         self.moments = moments
         self.isGroup = isGroup
         self.memberIDs = memberIDs
+        self.walletBalance = walletBalance
     }
 }
 
@@ -306,10 +308,6 @@ private final class ChatModel: ObservableObject {
     @Published var walletBalance: Double = 1000 {
         didSet { UserDefaults.standard.set(walletBalance, forKey: walletKey) }
     }
-    @Published var otherWalletBalance: Double = 1000 {
-        didSet { UserDefaults.standard.set(otherWalletBalance, forKey: otherWalletKey) }
-    }
-
     private let messagesKey = "customchat.messages.v1"
     private let threadsKey = "customchat.threads.v1"
     private let identityKey = "customchat.identity.v1"
@@ -332,12 +330,21 @@ private final class ChatModel: ObservableObject {
             identity = value
         }
 
+        let legacyOtherBalance = UserDefaults.standard.object(forKey: otherWalletKey) as? Double
         if let data = UserDefaults.standard.data(forKey: contactsKey),
            let value = try? JSONDecoder().decode([ChatContact].self, from: data),
            !value.isEmpty {
-            contacts = value
+            var restoredContacts = value
+            if let firstUnmigrated = restoredContacts.firstIndex(where: { $0.walletBalance == nil }),
+               let legacyOtherBalance {
+                restoredContacts[firstUnmigrated].walletBalance = max(0, legacyOtherBalance)
+            }
+            for index in restoredContacts.indices where restoredContacts[index].walletBalance == nil {
+                restoredContacts[index].walletBalance = 1000
+            }
+            contacts = restoredContacts
         } else {
-            contacts = [ChatContact(name: identity.other, avatarData: identity.otherAvatarData)]
+            contacts = [ChatContact(name: identity.other, avatarData: identity.otherAvatarData, walletBalance: max(0, legacyOtherBalance ?? 1000))]
         }
         selectedContactID = contacts.first?.id
 
@@ -366,15 +373,33 @@ private final class ChatModel: ObservableObject {
         if let storedBalance = UserDefaults.standard.object(forKey: walletKey) as? Double {
             walletBalance = max(0, storedBalance)
         }
-        if let storedBalance = UserDefaults.standard.object(forKey: otherWalletKey) as? Double {
-            otherWalletBalance = max(0, storedBalance)
-        }
         persistContacts()
         persistCurrentThread()
     }
 
     var currentContact: ChatContact? {
         contacts.first(where: { $0.id == selectedContactID }) ?? contacts.first
+    }
+
+    // In a one-to-one chat the selected friend owns the recipient wallet.
+    // In a group chat the selected simulated sender owns that member's wallet.
+    var walletContactForCurrentChat: ChatContact? {
+        guard let contact = currentContact else { return nil }
+        if contact.isGroup == true {
+            let members = groupMembers(contact)
+            return activeGroupSenderID.flatMap { id in members.first(where: { $0.id == id }) } ?? members.first
+        }
+        return contact
+    }
+
+    func walletBalance(for contact: ChatContact?) -> Double {
+        contact?.walletBalance ?? 1000
+    }
+
+    func updateWalletBalance(_ value: Double, contactID: UUID?) {
+        guard let contactID,
+              let index = contacts.firstIndex(where: { $0.id == contactID }) else { return }
+        contacts[index].walletBalance = max(0, value)
     }
 
     func selectContact(_ id: UUID) {
@@ -477,13 +502,14 @@ private final class ChatModel: ObservableObject {
     @discardableResult
     func sendPayment(kind: ChatMessageKind, amount: Double, note: String) -> Bool {
         guard (kind == .redPacket || kind == .transfer), amount > 0 else { return false }
-        // Maintain a separate local demo balance for each chat identity.
         if activeRole == .me {
             guard walletBalance >= amount else { return false }
             walletBalance -= amount
         } else {
-            guard otherWalletBalance >= amount else { return false }
-            otherWalletBalance -= amount
+            guard let walletContact = walletContactForCurrentChat else { return false }
+            let balance = walletBalance(for: walletContact)
+            guard balance >= amount else { return false }
+            updateWalletBalance(balance - amount, contactID: walletContact.id)
         }
         messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
         return true
@@ -504,7 +530,8 @@ private final class ChatModel: ObservableObject {
         if receiverRole == .me {
             walletBalance += amount
         } else {
-            otherWalletBalance += amount
+            guard let walletContact = walletContactForCurrentChat else { return false }
+            updateWalletBalance(walletBalance(for: walletContact) + amount, contactID: walletContact.id)
         }
 
         var updatedMessages = messages
@@ -731,6 +758,8 @@ struct ContentView: View {
     @State private var showInsufficientBalance = false
     @State private var walletBalanceDraft = ""
     @State private var editingWalletRole: ChatRole = .me
+    @State private var editingWalletContactID: UUID?
+    @State private var imageCropRequest: ImageCropRequest?
     @State private var showMyMomentEditor = false
     @State private var myMomentDraft = ""
     @State private var editingMyMomentID: UUID?
@@ -888,6 +917,14 @@ struct ContentView: View {
                     }
                 }
             }
+            .sheet(item: $imageCropRequest) { request in
+                ImageCropperSheet(image: request.image, shape: request.shape, onCancel: {
+                    imageCropRequest = nil
+                }) { cropped in
+                    request.onCrop(cropped)
+                    imageCropRequest = nil
+                }
+            }
             .sheet(item: $previewPhoto) { photo in
                 PhotoPreviewView(data: photo.data)
             }
@@ -1019,9 +1056,13 @@ struct ContentView: View {
                 guard let item else { return }
                 Task {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let compact = compactImageData(data) {
-                        model.sendImage(compact)
-                        playMessageSound()
+                       let image = UIImage(data: data) {
+                        imageCropRequest = ImageCropRequest(image: image, shape: .roundedSquare) { cropped in
+                            if let compact = compactImageData(cropped) {
+                                model.sendImage(compact)
+                                playMessageSound()
+                            }
+                        }
                     }
                     selectedPhoto = nil
                 }
@@ -1030,8 +1071,10 @@ struct ContentView: View {
                 guard let item else { return }
                 Task {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let compact = compactImageData(data) {
-                        model.updateAvatar(for: .me, data: compact)
+                       let image = UIImage(data: data) {
+                        imageCropRequest = ImageCropRequest(image: image, shape: .circle) { cropped in
+                            if let compact = compactImageData(cropped) { model.updateAvatar(for: .me, data: compact) }
+                        }
                     }
                     myAvatarSelection = nil
                 }
@@ -1040,8 +1083,10 @@ struct ContentView: View {
                 guard let item else { return }
                 Task {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let compact = compactImageData(data) {
-                        model.updateAvatar(for: .other, data: compact)
+                       let image = UIImage(data: data) {
+                        imageCropRequest = ImageCropRequest(image: image, shape: .circle) { cropped in
+                            if let compact = compactImageData(cropped) { model.updateAvatar(for: .other, data: compact) }
+                        }
                     }
                     otherAvatarSelection = nil
                 }
@@ -1613,16 +1658,17 @@ struct ContentView: View {
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundStyle(Macaron.ink)
                     HStack {
-                        Text("对方账户余额")
+                        Text("\(model.walletContactForCurrentChat?.name ?? "好友")的账户余额")
                             .font(.system(size: 11))
                             .foregroundStyle(Macaron.secondary)
                         Spacer()
-                        Text("¥\(model.otherWalletBalance, specifier: "%.2f")")
+                        Text("¥\(model.walletBalance(for: model.walletContactForCurrentChat), specifier: "%.2f")")
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(Macaron.ink)
                         Button("修改") {
                             editingWalletRole = .other
-                            walletBalanceDraft = String(format: "%.2f", model.otherWalletBalance)
+                            editingWalletContactID = model.walletContactForCurrentChat?.id
+                            walletBalanceDraft = String(format: "%.2f", model.walletBalance(for: model.walletContactForCurrentChat))
                             showBalanceEditor = true
                         }
                         .font(.system(size: 11, weight: .semibold))
@@ -1654,12 +1700,12 @@ struct ContentView: View {
                             if editingWalletRole == .me {
                                 model.walletBalance = value
                             } else {
-                                model.otherWalletBalance = value
+                                model.updateWalletBalance(value, contactID: editingWalletContactID)
                             }
                         }
                     }
                 } message: {
-                    Text(editingWalletRole == .me ? "修改我方身份的本地余额。" : "修改对方身份的本地余额。两边余额分别保存。")
+                    Text(editingWalletRole == .me ? "修改我方身份的本地余额。" : "修改当前选中好友的独立钱包余额，其他好友不会受到影响。")
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -2205,6 +2251,10 @@ struct ContentView: View {
 
     private func compactImageData(_ data: Data) -> Data? {
         guard let image = UIImage(data: data) else { return nil }
+        return compactImageData(image)
+    }
+
+    private func compactImageData(_ image: UIImage) -> Data? {
         let longest = max(image.size.width, image.size.height)
         guard longest > 0 else { return nil }
         let scale = min(1, 1500 / longest)
