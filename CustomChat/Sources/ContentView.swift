@@ -14,7 +14,88 @@ enum ChatRole: String, CaseIterable, Codable {
     case me = "我"
 }
 
-enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, call }
+enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, call, voice }
+
+private let waveformSampleCount = 30
+
+final class VoiceCaptureManager: ObservableObject {
+    @Published private(set) var samples = Array(repeating: 0.08, count: waveformSampleCount)
+    @Published private(set) var isRecording = false
+    var onFailure: (() -> Void)?
+    private let engine = AVAudioEngine()
+    private var startedAt: Date?
+    private var captured: [Double] = []
+
+    func start(onDenied: @escaping () -> Void) {
+        guard !isRecording else { return }
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard granted else { onDenied(); return }
+                self.begin()
+            }
+        }
+    }
+
+    private func begin() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setActive(true)
+            let input = engine.inputNode
+            let format = input.outputFormat(forBus: 0)
+            guard format.channelCount > 0 else { throw NSError(domain: "VoiceCapture", code: 1) }
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+                guard let channel = buffer.floatChannelData?[0] else { return }
+                let count = Int(buffer.frameLength)
+                guard count > 0 else { return }
+                var sum: Float = 0
+                for i in 0..<count { sum += channel[i] * channel[i] }
+                let level = min(1, max(0.035, Double(sqrt(sum / Float(count))) * 7.5))
+                DispatchQueue.main.async {
+                    guard let self, self.isRecording else { return }
+                    self.samples.append(level)
+                    if self.samples.count > waveformSampleCount {
+                        self.samples.removeFirst(self.samples.count - waveformSampleCount)
+                    }
+                    self.captured.append(level)
+                }
+            }
+            engine.prepare()
+            try engine.start()
+            captured = []
+            samples = Array(repeating: 0.08, count: waveformSampleCount)
+            startedAt = Date()
+            isRecording = true
+        } catch {
+            cleanup()
+            onFailure?()
+        }
+    }
+
+    func stop() -> (duration: Double, waveform: [Double]) {
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        isRecording = false
+        let duration = max(1, Date().timeIntervalSince(startedAt ?? Date()))
+        let source = captured.isEmpty ? Array(repeating: 0.08, count: waveformSampleCount) : captured
+        let waveform = (0..<waveformSampleCount).map { i -> Double in
+            let a = i * source.count / waveformSampleCount
+            let b = max(a + 1, (i + 1) * source.count / waveformSampleCount)
+            return source[a..<min(b, source.count)].max() ?? 0.08
+        }
+        startedAt = nil
+        return (duration, waveform)
+    }
+
+    private func cleanup() {
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        isRecording = false
+    }
+}
 
 struct ChatMessage: Identifiable, Codable {
     var id: UUID
@@ -28,15 +109,18 @@ struct ChatMessage: Identifiable, Codable {
     var isWithdrawn: Bool
     var isReceived: Bool
     var senderName: String?
+    var voiceDuration: Double
+    var waveform: [Double]
 
     init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil,
-         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil) {
+         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil, voiceDuration: Double = 0, waveform: [Double] = []) {
         id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
         self.kind = kind ?? (imageData == nil ? .text : .image)
         self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName
+        self.voiceDuration = voiceDuration; self.waveform = waveform
     }
 
-    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName }
+    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName, voiceDuration, waveform }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -51,6 +135,8 @@ struct ChatMessage: Identifiable, Codable {
         isWithdrawn = try values.decodeIfPresent(Bool.self, forKey: .isWithdrawn) ?? false
         isReceived = try values.decodeIfPresent(Bool.self, forKey: .isReceived) ?? false
         senderName = try values.decodeIfPresent(String.self, forKey: .senderName)
+        voiceDuration = try values.decodeIfPresent(Double.self, forKey: .voiceDuration) ?? 0
+        waveform = try values.decodeIfPresent([Double].self, forKey: .waveform) ?? []
     }
 }
 
@@ -240,6 +326,7 @@ private final class ChatModel: ObservableObject {
         case .redPacket: return "发送了一个虚拟红包"
         case .transfer: return "发送了一笔虚拟转账"
         case .call: return last.note
+        case .voice: return "语音消息"
         case .text: return last.text
         }
     }
@@ -248,6 +335,10 @@ private final class ChatModel: ObservableObject {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         messages.append(ChatMessage(text: value, role: activeRole, senderName: activeRole == .other && currentContact?.isGroup == true ? (currentContact.flatMap { groupMemberNames($0).first } ?? "群成员") : nil))
+    }
+
+    func sendVoice(duration: Double, waveform: [Double]) {
+        messages.append(ChatMessage(role: activeRole, kind: .voice, voiceDuration: duration, waveform: waveform))
     }
 
     func sendImage(_ data: Data) {
@@ -284,6 +375,11 @@ private final class ChatModel: ObservableObject {
     func update(_ message: ChatMessage, text: String) {
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         messages[index].text = text
+        if messages[index].kind == .voice {
+            messages[index].kind = .text
+            messages[index].voiceDuration = 0
+            messages[index].waveform = []
+        }
     }
 
     func changeRole(_ message: ChatMessage) {
@@ -445,7 +541,9 @@ struct ContentView: View {
     @State private var showMyProfileEditor = false
     @State private var showAddContact = false
     @State private var showCreateGroup = false
-    @State private var showVoiceInput = false
+    @StateObject private var voiceCapture = VoiceCaptureManager()
+    @State private var isVoiceComposer = false
+    @State private var showMicrophoneAlert = false
     @State private var showFriendProfile = false
     @State private var showChatSettings = false
     @FocusState private var messageFocused: Bool
@@ -532,6 +630,14 @@ struct ContentView: View {
     private var basePresentation: some View {
         pageContent
             .preferredColorScheme(.light)
+            .alert("需要麦克风权限", isPresented: $showMicrophoneAlert) {
+                Button("知道了", role: .cancel) { }
+                Button("打开设置") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+            } message: {
+                Text("允许 CustomChat 使用麦克风后，才能根据你的真实声音绘制实时声波。应用不会保存录音或发送音频。")
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .inactive || phase == .background {
                     model.persistIdentity()
@@ -545,9 +651,6 @@ struct ContentView: View {
                     model.selectContact(id)
                     showConversation = true
                 }
-            }
-            .sheet(isPresented: $showVoiceInput) {
-                SimulatedVoiceInputSheet { value in draft = value }
             }
             .sheet(isPresented: $showAddContact) {
                 AddContactSheet { name, bio, avatarData in
@@ -1038,33 +1141,62 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("添加聊天内容")
 
-                Button { messageFocused = false; showVoiceInput = true } label: {
-                    Image(systemName: "waveform")
+                Button {
+                    if isVoiceComposer {
+                        if voiceCapture.isRecording { _ = voiceCapture.stop() }
+                        withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+                    } else {
+                        messageFocused = false
+                        isVoiceComposer = true
+                        voiceCapture.start { showMicrophoneAlert = true }
+                    }
+                } label: {
+                    Image(systemName: isVoiceComposer ? "keyboard" : "waveform")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(Color(hex: 0x5799D9))
                         .frame(width: 40, height: 46)
                         .background(Macaron.blue, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("模拟语音输入")
+                .accessibilityLabel(isVoiceComposer ? "切换文字输入" : "开始语音输入")
 
                 HStack(spacing: 8) {
-                    TextField("输入消息...", text: $draft, axis: .vertical)
-                        .font(.system(size: fontOption == "偏大" ? 16 : 15))
-                        .foregroundStyle(Macaron.ink)
-                        .lineLimit(1...4)
-                        .padding(.vertical, 12)
-                        .focused($messageFocused)
-                        .onSubmit(sendText)
-                    Button(action: sendText) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(accentColor.opacity(0.9), in: Circle())
+                    if isVoiceComposer {
+                        HStack(alignment: .center, spacing: 3) {
+                            ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
+                                Capsule().fill(Color(hex: 0x5799D9))
+                                    .frame(width: 3, height: max(4, CGFloat(value) * 34))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .accessibilityLabel("根据麦克风声音实时绘制的声波")
+                        Button(action: sendVoiceMessage) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 32, height: 32)
+                                .background(accentColor.opacity(0.9), in: Circle())
+                        }
+                        .disabled(!voiceCapture.isRecording)
+                        .opacity(voiceCapture.isRecording ? 1 : 0.38)
+                    } else {
+                        TextField("输入消息...", text: $draft, axis: .vertical)
+                            .font(.system(size: fontOption == "偏大" ? 16 : 15))
+                            .foregroundStyle(Macaron.ink)
+                            .lineLimit(1...4)
+                            .padding(.vertical, 12)
+                            .focused($messageFocused)
+                            .onSubmit(sendText)
+                        Button(action: sendText) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 32, height: 32)
+                                .background(accentColor.opacity(0.9), in: Circle())
+                        }
+                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.38 : 1)
                     }
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.38 : 1)
                 }
                 .padding(.leading, 17)
                 .padding(.trailing, 8)
@@ -1578,6 +1710,14 @@ struct ContentView: View {
         activeCall = SimulatedCall(isVideo: video)
     }
 
+    private func sendVoiceMessage() {
+        guard voiceCapture.isRecording else { return }
+        let captured = voiceCapture.stop()
+        model.sendVoice(duration: captured.duration, waveform: captured.waveform)
+        withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+        playMessageSound()
+    }
+
     private func sendText() {
         let previousCount = model.messages.count
         model.send(draft)
@@ -1864,6 +2004,9 @@ private struct MessageRow: View {
                     if !message.isWithdrawn && message.kind == .text {
                         Button("编辑文本", systemImage: "pencil", action: onEdit)
                     }
+                    if !message.isWithdrawn && message.kind == .voice {
+                        Button("转为文字", systemImage: "text.alignleft", action: onEdit)
+                    }
                     if !message.isWithdrawn {
                         Button(isMe ? "显示为对方发送" : "显示为我发送", systemImage: "arrow.left.arrow.right", action: onChangeRole)
                         Button("修改发送时间", systemImage: "clock", action: onChangeTime)
@@ -1885,6 +2028,8 @@ private struct MessageRow: View {
                 .foregroundStyle(Macaron.secondary)
                 .padding(.horizontal, 13).padding(.vertical, 8)
                 .background(Color.white.opacity(0.72), in: Capsule())
+        } else if message.kind == .voice {
+            VoiceMessageBubble(message: message, isMe: isMe, outgoingColor: outgoingColor)
         } else if message.kind == .call {
             HStack(spacing: 11) {
                 Image(systemName: message.note.contains("视频") ? "video.fill" : "phone.fill")
@@ -2617,63 +2762,43 @@ private struct CreateGroupSheet: View {
     }
 }
 
-private struct SimulatedVoiceInputSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var isGenerating = false
-    let onInsert: (String) -> Void
+private struct VoiceMessageBubble: View {
+    let message: ChatMessage
+    let isMe: Bool
+    let outgoingColor: Color
+    @State private var isAnimating = false
+
+    private var durationText: String { String(format: "%d″", Int(message.voiceDuration.rounded())) }
 
     var body: some View {
-        VStack(spacing: 20) {
-            Capsule().fill(Color(hex: 0xDDE3EC)).frame(width: 38, height: 5).padding(.top, 10)
-            Image(systemName: "waveform")
-                .font(.system(size: 28, weight: .medium))
-                .foregroundStyle(Color(hex: 0x5799D9))
-                .frame(width: 66, height: 66)
-                .background(Macaron.blue, in: Circle())
-            Text("模拟语音输入")
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(Macaron.ink)
-            Text("这里仅展示随机波形动画，不会开启麦克风、录制声音或进行真实语音识别。")
-                .font(.system(size: 12))
-                .foregroundStyle(Macaron.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            HStack(alignment: .center, spacing: 4) {
-                ForEach(0..<30, id: \.self) { index in
-                    TimelineView(.animation(minimumInterval: 0.12, paused: false)) { context in
-                        let phase = context.date.timeIntervalSinceReferenceDate * 4.2 + Double(index) * 0.73
-                        Capsule()
-                            .fill(Color(hex: 0x83B9EF))
-                            .frame(width: 4, height: CGFloat(8 + abs(sin(phase)) * 36))
+        Button {
+            guard !isAnimating else { return }
+            isAnimating = true
+            // Silent visual playback only; no audio is stored or played.
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0.8, message.voiceDuration)) {
+                isAnimating = false
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isAnimating ? "waveform" : "play.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                HStack(alignment: .center, spacing: 2) {
+                    ForEach(Array((message.waveform.isEmpty ? Array(repeating: 0.12, count: 24) : message.waveform).enumerated()), id: \.offset) { _, value in
+                        Capsule().fill(isMe ? Macaron.ink.opacity(0.78) : Color(hex: 0x5799D9))
+                            .frame(width: 2.5, height: max(4, CGFloat(value) * 27))
                     }
-                }
+                }.frame(height: 30)
+                Text(durationText).font(.system(size: 12, weight: .medium))
             }
-            .frame(height: 48)
-            .padding(.horizontal, 24)
-            Button {
-                isGenerating = true
-                onInsert("这是一段模拟语音输入文字。")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { dismiss() }
-            } label: {
-                Text(isGenerating ? "已填入文字" : "模拟生成文字")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Color(hex: 0x83B9EF), in: Capsule())
-            }
-            .padding(.horizontal, 24)
-            Button("关闭") { dismiss() }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Macaron.secondary)
-            Spacer(minLength: 8)
+            .foregroundStyle(Macaron.ink)
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .frame(width: min(245, max(145, 120 + CGFloat(message.voiceDuration) * 5)), alignment: .leading)
+            .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
-        .frame(maxWidth: .infinity)
-        .background(Macaron.background.ignoresSafeArea())
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.hidden)
+        .buttonStyle(.plain)
+        .accessibilityLabel("语音消息，时长\(durationText)，点击播放静音动画")
     }
-
 }
 
 private struct CallControlButton: View {
