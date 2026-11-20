@@ -497,7 +497,7 @@ struct ContentView: View {
 
             composer
         }
-        .background(Macaron.background)
+        .background(Macaron.card)
     }
 
     private var composer: some View {
