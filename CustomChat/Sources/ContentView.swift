@@ -23,6 +23,8 @@ private let waveformSampleCount = 30
 final class VoiceCaptureManager: ObservableObject {
     @Published private(set) var samples = Array(repeating: 0.075, count: waveformSampleCount)
     @Published private(set) var isRecording = false
+    @Published private(set) var isPreparing = false
+    @Published private(set) var isFinalizing = false
     @Published private(set) var hasCapture = false
     @Published var transcript = ""
 
@@ -31,6 +33,7 @@ final class VoiceCaptureManager: ObservableObject {
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var finishWorkItem: DispatchWorkItem?
     private var startedAt: Date?
     private var captured: [Double] = []
     private var lastDuration: Double = 0
@@ -38,30 +41,43 @@ final class VoiceCaptureManager: ObservableObject {
     private var smoothedLevel: Double = 0.075
 
     func start(onDenied: @escaping () -> Void) {
-        guard !isRecording else { return }
-        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard granted else { onDenied(); return }
-                SFSpeechRecognizer.requestAuthorization { status in
-                    DispatchQueue.main.async {
-                        let canTranscribe = status == .authorized && self.speechRecognizer != nil
-                        if !canTranscribe { onDenied() }
-                        self.begin(enableTranscription: canTranscribe)
+        guard !isRecording, !isPreparing, !isFinalizing else { return }
+        guard let speechRecognizer, speechRecognizer.isAvailable else {
+            onDenied()
+            return
+        }
+        isPreparing = true
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] microphoneAllowed in
+            guard let self else { return }
+            guard microphoneAllowed else {
+                DispatchQueue.main.async {
+                    self.isPreparing = false
+                    onDenied()
+                }
+                return
+            }
+            SFSpeechRecognizer.requestAuthorization { status in
+                DispatchQueue.main.async {
+                    guard status == .authorized else {
+                        self.isPreparing = false
+                        onDenied()
+                        return
                     }
+                    self.begin()
                 }
             }
         }
     }
 
-    private func begin(enableTranscription: Bool) {
+    private func begin() {
         do {
+            finishWorkItem?.cancel()
             recognitionTask?.cancel()
             recognitionTask = nil
             recognitionRequest = nil
 
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
 
             let input = engine.inputNode
@@ -76,23 +92,18 @@ final class VoiceCaptureManager: ObservableObject {
             smoothedLevel = 0.075
             samples = Array(repeating: 0.075, count: waveformSampleCount)
 
-            if enableTranscription, let recognizer = speechRecognizer, recognizer.isAvailable {
-                let request = SFSpeechAudioBufferRecognitionRequest()
-                request.shouldReportPartialResults = true
-                request.taskHint = .dictation
-                if recognizer.supportsOnDeviceRecognition {
-                    request.requiresOnDeviceRecognition = true
-                }
-                recognitionRequest = request
-                recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                    DispatchQueue.main.async {
-                        guard let self else { return }
-                        if let result {
-                            self.transcript = result.bestTranscription.formattedString
-                        }
-                        if error != nil || result?.isFinal == true {
-                            self.recognitionRequest = nil
-                        }
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            request.taskHint = .dictation
+            recognitionRequest = request
+            recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if let result {
+                        self.transcript = result.bestTranscription.formattedString
+                    }
+                    if result?.isFinal == true || error != nil {
+                        self.finishCapture()
                     }
                 }
             }
@@ -111,16 +122,15 @@ final class VoiceCaptureManager: ObservableObject {
                 }
 
                 let rms = Double(sqrt(sum / Float(count)))
-                // Compress the dynamic range and add a little peak sensitivity so
-                // quiet speech still produces visible bars without clipping loud speech.
-                let boosted = pow(max(rms, Double(peak) * 0.16), 0.62) * 3.4
-                let level = min(1, max(0.075, boosted))
-
+                // Lift quiet speech and compress loud peaks for a more even waveform.
+                let amplified = pow(max(rms, Double(peak) * 0.20), 0.62) * 3.6
+                let level = min(1, max(0.075, amplified))
                 self.recognitionRequest?.append(buffer)
+
                 DispatchQueue.main.async {
                     guard self.isRecording else { return }
-                    let smoothing = level > self.smoothedLevel ? 0.62 : 0.28
-                    self.smoothedLevel += (level - self.smoothedLevel) * smoothing
+                    let attack = level > self.smoothedLevel ? 0.68 : 0.30
+                    self.smoothedLevel += (level - self.smoothedLevel) * attack
                     self.samples.append(self.smoothedLevel)
                     if self.samples.count > waveformSampleCount {
                         self.samples.removeFirst(self.samples.count - waveformSampleCount)
@@ -132,6 +142,7 @@ final class VoiceCaptureManager: ObservableObject {
             engine.prepare()
             try engine.start()
             startedAt = Date()
+            isPreparing = false
             isRecording = true
         } catch {
             cleanup()
@@ -139,39 +150,49 @@ final class VoiceCaptureManager: ObservableObject {
         }
     }
 
-    @discardableResult
-    func stop() -> (duration: Double, waveform: [Double], transcript: String) {
-        guard isRecording else {
-            return (lastDuration, lastWaveform, transcript)
-        }
+    func stop() {
+        guard isRecording else { return }
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         isRecording = false
+        isFinalizing = true
 
         let duration = max(1, Date().timeIntervalSince(startedAt ?? Date()))
         let source = captured.isEmpty ? Array(repeating: 0.075, count: waveformSampleCount) : captured
-        let waveform = (0..<waveformSampleCount).map { i -> Double in
+        lastDuration = duration
+        lastWaveform = (0..<waveformSampleCount).map { i -> Double in
             let a = i * source.count / waveformSampleCount
             let b = max(a + 1, (i + 1) * source.count / waveformSampleCount)
             return source[a..<min(b, source.count)].max() ?? 0.075
         }
         startedAt = nil
-        lastDuration = duration
-        lastWaveform = waveform
+
+        // Give Speech time to deliver its final transcription after endAudio().
+        recognitionRequest?.endAudio()
+        let fallback = DispatchWorkItem { [weak self] in self?.finishCapture() }
+        finishWorkItem?.cancel()
+        finishWorkItem = fallback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.35, execute: fallback)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func finishCapture() {
+        guard isFinalizing else { return }
+        finishWorkItem?.cancel()
+        finishWorkItem = nil
+        recognitionRequest = nil
+        recognitionTask = nil
+        isFinalizing = false
         hasCapture = true
-        return (duration, waveform, transcript)
     }
 
     func consumeCapture() -> (duration: Double, waveform: [Double], transcript: String)? {
-        guard hasCapture else { return nil }
-        let result = (lastDuration, lastWaveform, transcript)
+        guard hasCapture, !isFinalizing else { return nil }
+        let value = (lastDuration, lastWaveform, transcript)
         hasCapture = false
         lastDuration = 0
         lastWaveform = []
-        return result
+        return value
     }
 
     private func cleanup() {
@@ -181,8 +202,12 @@ final class VoiceCaptureManager: ObservableObject {
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
+        finishWorkItem?.cancel()
+        finishWorkItem = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        isPreparing = false
         isRecording = false
+        isFinalizing = false
     }
 }
 
@@ -517,20 +542,26 @@ private final class ChatModel: ObservableObject {
 
     @discardableResult
     func receivePayment(_ message: ChatMessage) -> Bool {
-        guard (message.kind == .redPacket || message.kind == .transfer),
-              !message.isReceived,
+        guard message.kind == .redPacket || message.kind == .transfer,
               let amount = message.amount, amount > 0,
               let index = messages.firstIndex(where: { $0.id == message.id }),
               !messages[index].isReceived else { return false }
 
-        // The receiver is always the identity opposite to the sender.
-        // Do not rely on activeRole here: in group chat it may still be set
-        // to the selected sender when the receive overlay is presented.
-        let receiverRole: ChatRole = message.role == .me ? .other : .me
-        if receiverRole == .me {
+        // Match the old, working two-identity behavior: a payment sent by
+        // "对方" credits my wallet; a payment sent by "我" credits this chat's friend.
+        if message.role == .other {
             walletBalance += amount
         } else {
-            guard let walletContact = walletContactForCurrentChat else { return false }
+            let walletContact: ChatContact?
+            if currentContact?.isGroup == true,
+               let senderName = message.senderName {
+                walletContact = currentContact.flatMap { group in
+                    groupMembers(group).first(where: { $0.name == senderName })
+                } ?? walletContactForCurrentChat
+            } else {
+                walletContact = walletContactForCurrentChat
+            }
+            guard let walletContact else { return false }
             updateWalletBalance(walletBalance(for: walletContact) + amount, contactID: walletContact.id)
         }
 
@@ -759,7 +790,6 @@ struct ContentView: View {
     @State private var walletBalanceDraft = ""
     @State private var editingWalletRole: ChatRole = .me
     @State private var editingWalletContactID: UUID?
-    @State private var imageCropRequest: ImageCropRequest?
     @State private var showMyMomentEditor = false
     @State private var myMomentDraft = ""
     @State private var editingMyMomentID: UUID?
@@ -775,7 +805,6 @@ struct ContentView: View {
     @State private var paymentNoteDraft = ""
     @State private var receivedPaymentAmount: Double = 0
     @State private var showReceivedPayment = false
-    @State private var receivingPayment: ChatMessage?
     @State private var timeEditingMessage: ChatMessage?
     @State private var editedMessageTime = Date()
     @State private var myAvatarSelection: PhotosPickerItem?
@@ -832,15 +861,6 @@ struct ContentView: View {
             } else {
                 mainTabView
                     .transition(.opacity)
-            }
-            if let payment = receivingPayment {
-                PaymentReceiveOverlay(message: payment, onReceive: {
-                    model.receivePayment(payment)
-                }, onDismiss: {
-                    receivingPayment = nil
-                })
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                .zIndex(30)
             }
             if let call = activeCall, isCallMinimized {
                 VStack {
@@ -1327,7 +1347,10 @@ struct ContentView: View {
                                     onWithdraw: { model.withdraw(message) },
                                     onImageTap: { data in previewPhoto = SelectedPhoto(data: data) },
                                     onReceiveTransfer: {
-                                        receivingPayment = message
+                                        if model.receivePayment(message) {
+                                            receivedPaymentAmount = message.amount ?? 0
+                                            showReceivedPayment = true
+                                        }
                                     }
                                 )
                                 .id(message.id)
@@ -1478,22 +1501,98 @@ struct ContentView: View {
 
                 HStack(spacing: 8) {
                     if isVoiceComposer {
-                        VStack(spacing: 8) {
-                            TextField("识别到的文字会显示在这里…", text: $voiceCapture.transcript, axis: .vertical)
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 7) {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x5799D9))
+                                Text("语音转文字")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Macaron.ink)
+                                Spacer()
+                                HStack(spacing: 5) {
+                                    Circle()
+                                        .fill(voiceCapture.isRecording ? Color(hex: 0xE87986) : Color(hex: 0x8C98A8))
+                                        .frame(width: 6, height: 6)
+                                    Text(voiceCapture.isPreparing ? "正在启动" : voiceCapture.isRecording ? "正在聆听" : voiceCapture.isFinalizing ? "正在整理文字" : voiceCapture.hasCapture ? "识别完成" : "待开始")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(Macaron.secondary)
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(Macaron.background, in: Capsule())
+                            }
+
+                            TextField("说话后，识别文字会显示在这里…", text: $voiceCapture.transcript, axis: .vertical)
                                 .font(.system(size: 14))
                                 .foregroundStyle(Macaron.ink)
-                                .lineLimit(1...3)
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 9)
+                                .lineLimit(2...4)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
+                                .background(Macaron.background.opacity(0.75), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
 
-                            HStack(spacing: 9) {
+                            HStack(spacing: 10) {
                                 Button {
                                     if voiceCapture.isRecording {
-                                        _ = voiceCapture.stop()
+                                        voiceCapture.stop()
                                     } else {
+                                        voiceCapture.start { showMicrophoneAlert = true }
+                                    }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        HStack(alignment: .center, spacing: 2) {
+                                            ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
+                                                Capsule()
+                                                    .fill(Color(hex: 0x5799D9))
+                                                    .frame(width: 2.5, height: max(5, CGFloat(value) * 32))
+                                            }
+                                        }
+                                        .frame(height: 38)
+                                        Spacer(minLength: 0)
+                                        Text(voiceCapture.isRecording ? "点按声纹结束" : voiceCapture.hasCapture ? "重新录制" : "点击开始说话")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .lineLimit(1)
+                                    }
+                                    .foregroundStyle(Color(hex: 0x5799D9))
+                                    .padding(.horizontal, 12)
+                                    .frame(maxWidth: .infinity, minHeight: 46)
+                                    .background(Macaron.blue.opacity(0.62), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                .accessibilityLabel(voiceCapture.isRecording ? "结束语音识别" : "开始语音识别")
+
+                                Button(action: sendVoiceMessage) {
+                                    Image(systemName: "arrow.up")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 40, height: 40)
+                                        .background(accentColor, in: Circle())
+                                }
+                                .disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
+                                .opacity(voiceCapture.hasCapture && !voiceCapture.isFinalizing ? 1 : 0.38)
+                                .accessibilityLabel("发送语音消息")
+
+                                Button {
+                                    if voiceCapture.isRecording { voiceCapture.stop() }
+                                    withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+                                } label: {
+                                    Image(systemName: "keyboard")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(Macaron.secondary)
+                                        .frame(width: 36, height: 36)
+                                        .background(Macaron.background, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("切换文字输入")
+                            }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    }
                                         voiceCapture.start { showMicrophoneAlert = true }
                                     }
                                 } label: {
@@ -2205,7 +2304,6 @@ struct ContentView: View {
     }
 
     private func sendVoiceMessage() {
-        if voiceCapture.isRecording { _ = voiceCapture.stop() }
         guard let captured = voiceCapture.consumeCapture() else { return }
         model.sendVoice(duration: captured.duration, waveform: captured.waveform, text: captured.transcript)
         withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
@@ -2609,105 +2707,6 @@ private struct MessageRow: View {
     }
 }
 
-
-private struct PaymentReceiveOverlay: View {
-    let message: ChatMessage
-    let onReceive: () -> Bool
-    let onDismiss: () -> Void
-    @State private var didReceive = false
-    @State private var isAnimating = false
-    @State private var receiveError = false
-    private var isRedPacket: Bool { message.kind == .redPacket }
-    private var amountText: String { String(format: "%.2f", message.amount ?? 0) }
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.48).ignoresSafeArea()
-                .onTapGesture { if didReceive { onDismiss() } }
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.9)).frame(width: 38, height: 38)
-                    }
-                }.padding(.horizontal, 18).padding(.top, 12)
-                Spacer()
-                if isRedPacket {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(LinearGradient(colors: [Color(hex: 0xE85B4F), Color(hex: 0xC93632)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(width: 280, height: 350)
-                            .shadow(color: .black.opacity(0.22), radius: 28, y: 14)
-                        VStack(spacing: 16) {
-                            ZStack {
-                                Circle().fill(Color(hex: 0xF7D88B)).frame(width: 66, height: 66)
-                                Image(systemName: didReceive ? "checkmark" : "gift.fill")
-                                    .font(.system(size: 29, weight: .semibold)).foregroundStyle(Color(hex: 0xA83A30))
-                            }
-                            Text(didReceive ? "已领取红包" : "\(message.senderName ?? "好友")发来的红包")
-                                .font(.system(size: 19, weight: .semibold)).foregroundStyle(Color(hex: 0xFFE8B8))
-                            Text(message.note.isEmpty ? "恭喜发财，大吉大利" : message.note)
-                                .font(.system(size: 14)).foregroundStyle(Color(hex: 0xFFE8B8).opacity(0.92))
-                            if didReceive {
-                                Text("¥" + amountText).font(.system(size: 38, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.white).contentTransition(.numericText()).padding(.top, 12)
-                                Text("已存入本机钱包").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0xFFE8B8))
-                            } else {
-                                Button {
-                                    guard onReceive() else { receiveError = true; return }
-                                    withAnimation(.spring(response: 0.42, dampingFraction: 0.62)) { didReceive = true; isAnimating = true }
-                                } label: {
-                                    Image(systemName: "gift.fill").font(.system(size: 28, weight: .semibold))
-                                        .foregroundStyle(Color(hex: 0xB83C32)).frame(width: 76, height: 76)
-                                        .background(Color(hex: 0xF7D88B), in: Circle())
-                                }.buttonStyle(.plain).padding(.top, 12)
-                                Text(receiveError ? "领取失败，请返回聊天后重试" : "点击拆开").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0xFFE8B8))
-                            }
-                        }
-                    }
-                    .rotation3DEffect(.degrees(didReceive && isAnimating ? 360 : 0), axis: (x: 0, y: 1, z: 0))
-                } else {
-                    VStack(spacing: 16) {
-                        Image(systemName: didReceive ? "checkmark.circle.fill" : "yensign.circle.fill")
-                            .font(.system(size: 58)).foregroundStyle(didReceive ? Color(hex: 0x77C99A) : Color(hex: 0xE9B66E))
-                            .scaleEffect(isAnimating ? 1.12 : 1)
-                        Text(didReceive ? "收款成功" : "确认收款").font(.system(size: 21, weight: .bold)).foregroundStyle(Macaron.ink)
-                        Text("¥" + amountText).font(.system(size: 36, weight: .bold, design: .rounded))
-                            .foregroundStyle(Macaron.ink).contentTransition(.numericText())
-                        Text(message.note.isEmpty ? "转账" : message.note).font(.system(size: 14)).foregroundStyle(Macaron.secondary)
-                        if didReceive {
-                            Text("已存入本机钱包").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(hex: 0x55A879))
-                        } else {
-                            Button {
-                                guard onReceive() else { receiveError = true; return }
-                                withAnimation(.spring(response: 0.38, dampingFraction: 0.62)) { didReceive = true; isAnimating = true }
-                            } label: {
-                                Text("确认收款").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity).padding(.vertical, 14).background(Color(hex: 0xE5A85F), in: Capsule())
-                            }.buttonStyle(.plain)
-                            if receiveError {
-                                Text("领取失败，请返回聊天后重试")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(Color(hex: 0xC45C55))
-                            }
-                        }
-                    }
-                    .padding(28).frame(width: 300)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    .shadow(color: .black.opacity(0.2), radius: 28, y: 14)
-                }
-                Spacer()
-                if didReceive {
-                    Button("完成", action: onDismiss).font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Macaron.ink).padding(.horizontal, 38).padding(.vertical, 12)
-                        .background(Color.white, in: Capsule()).padding(.bottom, 24)
-                }
-            }
-        }
-        .preferredColorScheme(.light)
-    }
-}
 
 private struct AddContentMenu: View {
     let onDismiss: () -> Void
