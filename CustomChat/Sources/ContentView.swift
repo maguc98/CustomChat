@@ -1,14 +1,20 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVKit
+import UniformTypeIdentifiers
 import AudioToolbox
+
+private extension Notification.Name {
+    static let customChatScrollToBottom = Notification.Name("customchat.scrollToBottom")
+}
 
 enum ChatRole: String, CaseIterable, Codable {
     case other = "对方"
     case me = "我"
 }
 
-enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer }
+enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, call }
 
 struct ChatMessage: Identifiable, Codable {
     var id: UUID
@@ -20,15 +26,16 @@ struct ChatMessage: Identifiable, Codable {
     var amount: Double?
     var note: String
     var isWithdrawn: Bool
+    var isReceived: Bool
 
     init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil,
-         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false) {
+         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false) {
         id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
         self.kind = kind ?? (imageData == nil ? .text : .image)
-        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn
+        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived
     }
 
-    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn }
+    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -41,6 +48,7 @@ struct ChatMessage: Identifiable, Codable {
         amount = try values.decodeIfPresent(Double.self, forKey: .amount)
         note = try values.decodeIfPresent(String.self, forKey: .note) ?? ""
         isWithdrawn = try values.decodeIfPresent(Bool.self, forKey: .isWithdrawn) ?? false
+        isReceived = try values.decodeIfPresent(Bool.self, forKey: .isReceived) ?? false
     }
 }
 
@@ -69,11 +77,15 @@ struct MomentPost: Identifiable, Codable {
     var id: UUID
     var text: String
     var date: Date
+    var mediaData: Data?
+    var mediaType: String?
 
-    init(text: String, date: Date = .now) {
+    init(text: String, date: Date = .now, mediaData: Data? = nil, mediaType: String? = nil) {
         id = UUID()
         self.text = text
         self.date = date
+        self.mediaData = mediaData
+        self.mediaType = mediaType
     }
 }
 
@@ -209,6 +221,7 @@ private final class ChatModel: ObservableObject {
         case .image: return "发来了一张图片"
         case .redPacket: return "发送了一个虚拟红包"
         case .transfer: return "发送了一笔虚拟转账"
+        case .call: return last.note
         case .text: return last.text
         }
     }
@@ -230,13 +243,24 @@ private final class ChatModel: ObservableObject {
             if activeRole == .me {
                 guard walletBalance >= amount else { return false }
                 walletBalance -= amount
-            } else {
-                // Incoming transfers increase the local wallet; they never debit it.
-                walletBalance += amount
             }
         }
         messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note))
         return true
+    }
+
+    func receiveTransfer(_ message: ChatMessage) {
+        guard message.kind == .transfer, message.role == .other, !message.isReceived,
+              let amount = message.amount, amount > 0,
+              let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        walletBalance += amount
+        messages[index].isReceived = true
+    }
+
+    func addCallMessage(isVideo: Bool, duration: Int) {
+        let label = isVideo ? "视频通话" : "语音通话"
+        let time = String(format: "%02d:%02d", duration / 60, duration % 60)
+        messages.append(ChatMessage(role: .me, kind: .call, note: "\(label) · \(time)"))
     }
 
     func update(_ message: ChatMessage, text: String) {
@@ -403,6 +427,8 @@ struct ContentView: View {
     @State private var showMyProfileEditor = false
     @State private var showAddContact = false
     @State private var showFriendProfile = false
+    @State private var showChatSettings = false
+    @FocusState private var messageFocused: Bool
     @State private var showBalanceEditor = false
     @State private var showInsufficientBalance = false
     @State private var walletBalanceDraft = ""
@@ -492,6 +518,7 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showMyProfileEditor) { myProfileEditor }
+            .sheet(isPresented: $showChatSettings) { chatSettingsSheet }
             .sheet(isPresented: $showAddContact) {
                 AddContactSheet { name, bio, avatarData in
                     model.addContact(name: name, bio: bio, avatarData: avatarData)
@@ -590,6 +617,7 @@ struct ContentView: View {
                     isVideo: call.isVideo
                 ) { duration in
                     model.addCall(isVideo: call.isVideo, duration: duration)
+                    model.addCallMessage(isVideo: call.isVideo, duration: duration)
                     activeCall = nil
                 }
             }
@@ -786,7 +814,7 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                         .frame(width: 30, height: 42)
                 }
-                IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink)
+                Button { showFriendProfile = true } label: { IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink) }.buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
@@ -805,7 +833,7 @@ struct ContentView: View {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
                 }
                 .accessibilityLabel("模拟视频通话")
-                Button { showFriendProfile = true } label: {
+                Button { showChatSettings = true } label: {
                     Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40)
                 }
             }
@@ -844,7 +872,8 @@ struct ContentView: View {
                                     onChangeRole: { model.changeRole(message) },
                                     onChangeTime: { editedMessageTime = message.time; timeEditingMessage = message },
                                     onWithdraw: { model.withdraw(message) },
-                                    onImageTap: { data in previewPhoto = SelectedPhoto(data: data) }
+                                    onImageTap: { data in previewPhoto = SelectedPhoto(data: data) },
+                                    onReceiveTransfer: { model.receiveTransfer(message) }
                                 )
                                 .id(message.id)
                             }
@@ -856,7 +885,7 @@ struct ContentView: View {
                 // Keep the composer anchored above the keyboard. The message list
                 // owns the remaining height and must not dismiss the keyboard
                 // or hide the composer as a side effect of a drag gesture.
-                .scrollDismissesKeyboard(.never)
+                .scrollDismissesKeyboard(.interactively)
                 .onAppear {
                     if let last = model.messages.last {
                         DispatchQueue.main.async {
@@ -882,6 +911,12 @@ struct ContentView: View {
                         withAnimation(.easeOut(duration: 0.22)) {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .customChatScrollToBottom)) { _ in
+                    guard let last = model.messages.last else { return }
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
             }
@@ -929,10 +964,32 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                 }
                 Spacer(minLength: 0)
+                Button { messageFocused = false } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(Color(hex: 0xF0F1F5), in: Circle())
+                }
+                .accessibilityLabel("收起键盘")
+                Button {
+                    NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
+                    messageFocused = false
+                } label: {
+                    Image(systemName: "arrow.down.to.line")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(Color(hex: 0xF0F1F5), in: Circle())
+                }
+                .accessibilityLabel("滚动到聊天底部")
             }
 
             HStack(spacing: 11) {
-                Button { showAddMenu = true } label: {
+                Button {
+                    messageFocused = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { showAddMenu = true }
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 21, weight: .medium))
                         .foregroundStyle(Color(hex: 0x5799D9))
@@ -951,6 +1008,7 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                         .lineLimit(1...4)
                         .padding(.vertical, 12)
+                        .focused($messageFocused)
                         .onSubmit(sendText)
                     Button(action: sendText) {
                         Image(systemName: "arrow.up")
@@ -1299,6 +1357,43 @@ struct ContentView: View {
         .padding(.top, 4)
         .background(Macaron.card)
         .overlay(alignment: .top) { Rectangle().fill(Macaron.line).frame(height: 1) }
+    }
+
+    private var chatSettingsSheet: some View {
+        NavigationStack {
+            Form {
+                Section("聊天外观") {
+                    Picker("聊天背景", selection: $backgroundOption) {
+                        ForEach(["雾蓝白", "奶油白", "淡粉", "薄荷绿"], id: \.self) { Text($0) }
+                    }
+                    Picker("主题颜色", selection: $themeOption) {
+                        ForEach(["浅蓝", "樱花粉", "薄荷绿", "薰衣草紫"], id: \.self) { Text($0) }
+                    }
+                    Picker("文字大小", selection: $fontOption) {
+                        ForEach(["偏小", "标准", "偏大"], id: \.self) { Text($0) }
+                    }
+                }
+                Section("消息提醒") {
+                    Picker("消息提醒", selection: $soundOption) {
+                        ForEach(["轻柔", "清脆", "关闭"], id: \.self) { Text($0) }
+                    }
+                }
+                Section("聊天记录") {
+                    Button(role: .destructive) { showClearConfirmation = true } label: {
+                        Label("清空当前好友聊天记录", systemImage: "trash")
+                    }
+                }
+            }
+            .navigationTitle("设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showChatSettings = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private var myProfileEditor: some View {
