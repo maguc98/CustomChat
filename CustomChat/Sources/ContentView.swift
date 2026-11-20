@@ -1353,18 +1353,22 @@ struct ContentView: View {
                         Label("发布", systemImage: "plus").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
                     }
                 }.padding(.horizontal, 20).padding(.top, 20)
-                let feed = (model.myMoments.map { ("我", model.identity.meAvatarData, $0) } + model.contacts.filter { $0.isGroup != true }.flatMap { contact in contact.moments.map { (contact.name, contact.avatarData, $0) } }).sorted { $0.2.date > $1.2.date }
+                var feed = model.myMoments.map { MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0) }
+                for contact in model.contacts where contact.isGroup != true {
+                    feed.append(contentsOf: contact.moments.map { MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0) })
+                }
+                feed.sort { $0.post.date > $1.post.date }
                 if feed.isEmpty {
                     EmptyHint(symbol: "text.bubble", title: "朋友圈还很安静", subtitle: "发布自己的动态，或到好友主页查看他们的分享。").padding(.top, 80)
                 } else {
-                    ForEach(feed, id: \.2.id) { item in
+                    ForEach(feed) { item in
                         HStack(alignment: .top, spacing: 12) {
-                            IdentityAvatar(data: item.1, name: item.0, size: 42, tint: Macaron.blue)
+                            IdentityAvatar(data: item.avatarData, name: item.author, size: 42, tint: Macaron.blue)
                             VStack(alignment: .leading, spacing: 9) {
-                                Text(item.0).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
-                                if !item.2.text.isEmpty { Text(item.2.text).font(.system(size: 14)).foregroundStyle(Macaron.ink) }
-                                if let data = item.2.mediaData { MomentMediaView(data: data, mediaType: item.2.mediaType) }
-                                Text(item.2.date, format: .dateTime.year().month().day().hour().minute()).font(.system(size: 10)).foregroundStyle(Macaron.secondary)
+                                Text(item.author).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
+                                if !item.post.text.isEmpty { Text(item.post.text).font(.system(size: 14)).foregroundStyle(Macaron.ink) }
+                                if let data = item.post.mediaData { MomentMediaView(data: data, mediaType: item.post.mediaType) }
+                                Text(item.post.date, format: .dateTime.year().month().day().hour().minute()).font(.system(size: 10)).foregroundStyle(Macaron.secondary)
                             }
                         }.padding(15).background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous)).padding(.horizontal, 16)
                     }
@@ -2539,6 +2543,13 @@ private struct MomentMediaView: View {
     }
 }
 
+
+private struct MomentFeedItem: Identifiable {
+    let author: String
+    let avatarData: Data?
+    let post: MomentPost
+    var id: UUID { post.id }
+}
 
 private struct CreateGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
