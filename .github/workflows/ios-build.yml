@@ -1,0 +1,62 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE/Contents/Developer"; fi
+          xcodebuild -version
+
+      - name: Build unsigned device app
+        run: |
+          xcodebuild \
+            -project CustomChat.xcodeproj \
+            -scheme CustomChat \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          APP="build/DerivedData/Build/Products/Release-iphoneos/CustomChat.app"
+          test -d "$APP"
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          (cd build && /usr/bin/zip -qry CustomChat-unsigned.ipa Payload)
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CustomChat-unsigned-IPA
+          path: build/CustomChat-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build simulator app
+        run: |
+          xcodebuild \
+            -project CustomChat.xcodeproj \
+            -scheme CustomChat \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/SimulatorDerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
