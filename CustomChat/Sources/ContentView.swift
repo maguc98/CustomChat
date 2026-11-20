@@ -1343,6 +1343,14 @@ struct ContentView: View {
         }
     }
 
+    private var momentsFeedItems: [MomentFeedItem] {
+        var items = model.myMoments.map { MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0) }
+        for contact in model.contacts where contact.isGroup != true {
+            items.append(contentsOf: contact.moments.map { MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0) })
+        }
+        return items.sorted { $0.post.date > $1.post.date }
+    }
+
     private var momentsFeedView: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
@@ -1353,11 +1361,7 @@ struct ContentView: View {
                         Label("发布", systemImage: "plus").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
                     }
                 }.padding(.horizontal, 20).padding(.top, 20)
-                var feed = model.myMoments.map { MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0) }
-                for contact in model.contacts where contact.isGroup != true {
-                    feed.append(contentsOf: contact.moments.map { MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0) })
-                }
-                feed.sort { $0.post.date > $1.post.date }
+                let feed = momentsFeedItems
                 if feed.isEmpty {
                     EmptyHint(symbol: "text.bubble", title: "朋友圈还很安静", subtitle: "发布自己的动态，或到好友主页查看他们的分享。").padding(.top, 80)
                 } else {
