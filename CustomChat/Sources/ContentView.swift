@@ -2233,6 +2233,9 @@ private struct FriendProfileSheet: View {
                                         .font(.system(size: 14))
                                         .foregroundStyle(Macaron.ink)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                    if let mediaData = post.mediaData {
+                                        MomentMediaView(data: mediaData, mediaType: post.mediaType)
+                                    }
                                     Text(post.date, format: .dateTime.year().month().day().hour().minute())
                                         .font(.system(size: 10))
                                         .foregroundStyle(Macaron.secondary)
@@ -2282,14 +2285,18 @@ private struct FriendProfileSheet: View {
             .sheet(isPresented: $showMomentEditor) {
                 MomentEditorSheet(
                     title: editingMomentID == nil ? "发布好友动态" : "编辑好友动态",
-                    initialText: momentDraft
-                ) { text in
+                    initialText: momentDraft,
+                    initialMediaData: editingMomentID.flatMap { id in contact.moments.first(where: { $0.id == id })?.mediaData },
+                    initialMediaType: editingMomentID.flatMap { id in contact.moments.first(where: { $0.id == id })?.mediaType }
+                ) { text, mediaData, mediaType in
                     if let id = editingMomentID,
                        let index = contact.moments.firstIndex(where: { $0.id == id }) {
                         contact.moments[index].text = text
                         contact.moments[index].date = .now
+                        contact.moments[index].mediaData = mediaData
+                        contact.moments[index].mediaType = mediaType
                     } else {
-                        contact.moments.insert(MomentPost(text: text), at: 0)
+                        contact.moments.insert(MomentPost(text: text, mediaData: mediaData, mediaType: mediaType), at: 0)
                     }
                     onUpdate(contact)
                 }
@@ -2304,12 +2311,18 @@ private struct FriendProfileSheet: View {
 private struct MomentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
+    @State private var mediaSelection: PhotosPickerItem?
+    @State private var mediaData: Data?
+    @State private var mediaType: String?
     let title: String
-    let onSave: (String) -> Void
+    let onSave: (String, Data?, String?) -> Void
 
-    init(title: String, initialText: String, onSave: @escaping (String) -> Void) {
+    init(title: String, initialText: String, initialMediaData: Data? = nil, initialMediaType: String? = nil,
+         onSave: @escaping (String, Data?, String?) -> Void) {
         self.title = title
         _text = State(initialValue: initialText)
+        _mediaData = State(initialValue: initialMediaData)
+        _mediaType = State(initialValue: initialMediaType)
         self.onSave = onSave
     }
 
@@ -2320,7 +2333,24 @@ private struct MomentEditorSheet: View {
                     .font(.system(size: 16))
                     .scrollContentBackground(.hidden)
                     .padding(10)
+                    .frame(minHeight: 130)
                     .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                PhotosPicker(selection: $mediaSelection, matching: .any(of: [.images, .videos])) {
+                    Label(mediaData == nil ? "添加照片或视频" : "更换照片或视频", systemImage: "photo.on.rectangle.angled")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                        .padding(12)
+                        .background(Macaron.blue, in: Capsule())
+                }
+                if let mediaData {
+                    MomentMediaView(data: mediaData, mediaType: mediaType)
+                        .frame(maxHeight: 170)
+                    Button("移除媒体", role: .destructive) {
+                        self.mediaData = nil
+                        mediaType = nil
+                    }
+                    .font(.system(size: 12))
+                }
                 Text("动态只保存在本机，可以随时再次编辑或删除。")
                     .font(.system(size: 11))
                     .foregroundStyle(Macaron.secondary)
@@ -2337,17 +2367,62 @@ private struct MomentEditorSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !value.isEmpty else { return }
-                        onSave(value)
+                        guard !value.isEmpty || mediaData != nil else { return }
+                        onSave(value, mediaData, mediaType)
                         dismiss()
                     }
                     .fontWeight(.semibold)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && mediaData == nil)
+                }
+            }
+            .onChange(of: mediaSelection) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        mediaData = data
+                        mediaType = item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) ? "video" : "image"
+                    }
+                    mediaSelection = nil
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+}
+
+private struct MomentMediaView: View {
+    let data: Data
+    let mediaType: String?
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        Group {
+            if mediaType == "video" {
+                VideoPlayer(player: player)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 210)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .onAppear { preparePlayer() }
+                    .onDisappear { player?.pause(); player = nil }
+            } else if let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+    }
+
+    private func preparePlayer() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("moment-\(UUID().uuidString).mov")
+        do {
+            try data.write(to: url, options: .atomic)
+            player = AVPlayer(url: url)
+        } catch {
+            NSLog("CustomChat: unable to prepare moment video: %@", error.localizedDescription)
+        }
     }
 }
 
