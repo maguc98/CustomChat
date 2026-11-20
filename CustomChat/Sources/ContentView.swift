@@ -938,6 +938,7 @@ struct ContentView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         .background(Macaron.card)
+        .padding(.bottom, messageFocused ? 8 : 0)
     }
 
     private var composer: some View {
@@ -974,7 +975,6 @@ struct ContentView: View {
                 .accessibilityLabel("收起键盘")
                 Button {
                     NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
-                    messageFocused = false
                 } label: {
                     Image(systemName: "arrow.down.to.line")
                         .font(.system(size: 16, weight: .medium))
@@ -988,7 +988,7 @@ struct ContentView: View {
             HStack(spacing: 11) {
                 Button {
                     messageFocused = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { showAddMenu = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showAddMenu = true }
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 21, weight: .medium))
@@ -1379,7 +1379,10 @@ struct ContentView: View {
                     }
                 }
                 Section("聊天记录") {
-                    Button(role: .destructive) { showClearConfirmation = true } label: {
+                    Button(role: .destructive) {
+                        showChatSettings = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showClearConfirmation = true }
+                    } label: {
                         Label("清空当前好友聊天记录", systemImage: "trash")
                     }
                 }
