@@ -552,11 +552,22 @@ struct ChatMessage: Identifiable, Codable {
     }
 }
 
+struct PersonaAppearance: Codable {
+    var appBackgroundHex: UInt = 0xF5F7FB
+    var chatBackgroundHex: UInt = 0xF5F7FB
+    var outgoingBubbleHex: UInt = 0xD8EAFF
+    var incomingBubbleHex: UInt = 0xFFFFFF
+    var textHex: UInt = 0x202A3A
+    var accentHex: UInt = 0x8FC7FF
+    var chatBackgroundImageData: Data?
+}
+
 struct ChatIdentity: Codable {
     var me = "我"
     var other = "对方"
     var meAvatarData: Data?
     var otherAvatarData: Data?
+    var appearance: PersonaAppearance?
 }
 
 struct CallRecord: Identifiable, Codable {
@@ -632,6 +643,7 @@ struct ChatContact: Identifiable, Codable {
         self.isGroup = isGroup
         self.memberIDs = memberIDs
         self.walletBalance = walletBalance
+        self.appearance = appearance
     }
 }
 
@@ -646,6 +658,9 @@ private final class ChatModel: ObservableObject {
     @Published var calls: [CallRecord] = [] { didSet { saveCalls() } }
     @Published var contacts: [ChatContact] = [] { didSet { persistContacts() } }
     @Published var selectedContactID: UUID?
+    @Published var activePersonaID: UUID? {
+        didSet { UserDefaults.standard.set(activePersonaID?.uuidString, forKey: "customchat.activePersona.v1") }
+    }
     @Published var myMoments: [MomentPost] = [] { didSet { persistMyMoments() } }
     @Published var walletBalance: Double = 1000 {
         didSet { UserDefaults.standard.set(walletBalance, forKey: walletKey) }
@@ -689,6 +704,11 @@ private final class ChatModel: ObservableObject {
             contacts = [ChatContact(name: identity.other, avatarData: identity.otherAvatarData, walletBalance: max(0, legacyOtherBalance ?? 1000))]
         }
         selectedContactID = contacts.first?.id
+        if let storedPersona = UserDefaults.standard.string(forKey: "customchat.activePersona.v1"),
+           let personaID = UUID(uuidString: storedPersona),
+           contacts.contains(where: { $0.id == personaID && $0.isGroup != true }) {
+            activePersonaID = personaID
+        }
 
         if let data = UserDefaults.standard.data(forKey: threadsKey),
            let value = try? JSONDecoder().decode([String: [ChatMessage]].self, from: data) {
@@ -722,6 +742,90 @@ private final class ChatModel: ObservableObject {
     var currentContact: ChatContact? {
         contacts.first(where: { $0.id == selectedContactID }) ?? contacts.first
     }
+
+    var activePersonaContact: ChatContact? {
+        guard let activePersonaID else { return nil }
+        return contacts.first(where: { $0.id == activePersonaID && $0.isGroup != true })
+    }
+
+    var activePersonaName: String {
+        if let activePersonaContact { return activePersonaContact.name }
+        let value = identity.me.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? "我" : value
+    }
+
+    var activePersonaAvatar: Data? {
+        activePersonaContact?.avatarData ?? (activePersonaID == nil ? identity.meAvatarData : nil)
+    }
+
+    var activePersonaAppearance: PersonaAppearance {
+        activePersonaContact?.appearance ?? identity.appearance ?? PersonaAppearance()
+    }
+
+    var activePersonaMoments: [MomentPost] {
+        activePersonaContact?.moments ?? myMoments
+    }
+
+    func switchPersona(_ id: UUID?) {
+        guard id == nil || contacts.contains(where: { $0.id == id && $0.isGroup != true }) else { return }
+        withAnimation(ChatMotion.layout) { activePersonaID = id }
+    }
+
+    func updateActivePersonaAppearance(_ appearance: PersonaAppearance) {
+        if let id = activePersonaID,
+           let index = contacts.firstIndex(where: { $0.id == id }) {
+            contacts[index].appearance = appearance
+        } else {
+            var updated = identity
+            updated.appearance = appearance
+            identity = updated
+        }
+    }
+
+    func updateActivePersonaName(_ name: String) {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let id = activePersonaID,
+           let index = contacts.firstIndex(where: { $0.id == id }) {
+            contacts[index].name = cleaned
+        } else {
+            var updated = identity
+            updated.me = name
+            identity = updated
+        }
+    }
+
+    func updateActivePersonaAvatar(_ data: Data) {
+        if let id = activePersonaID,
+           let index = contacts.firstIndex(where: { $0.id == id }) {
+            contacts[index].avatarData = data
+        } else {
+            var updated = identity
+            updated.meAvatarData = data
+            identity = updated
+        }
+    }
+
+    func activePersonaWalletBalance() -> Double {
+        activePersonaContact?.walletBalance ?? walletBalance
+    }
+
+    func setActivePersonaWalletBalance(_ value: Double) {
+        if let id = activePersonaID {
+            updateWalletBalance(value, contactID: id)
+        } else {
+            walletBalance = max(0, value)
+        }
+    }
+
+    func updateActivePersonaMoments(_ moments: [MomentPost]) {
+        if let id = activePersonaID,
+           let index = contacts.firstIndex(where: { $0.id == id }) {
+            contacts[index].moments = moments
+        } else {
+            myMoments = moments
+        }
+    }
+
 
     // In a one-to-one chat the selected friend owns the recipient wallet.
     // In a group chat the selected simulated sender owns that member's wallet.
@@ -846,8 +950,9 @@ private final class ChatModel: ObservableObject {
     func sendPayment(kind: ChatMessageKind, amount: Double, note: String) -> Bool {
         guard (kind == .redPacket || kind == .transfer), amount > 0 else { return false }
         if activeRole == .me {
-            guard walletBalance >= amount else { return false }
-            walletBalance -= amount
+            let balance = activePersonaWalletBalance()
+            guard balance >= amount else { return false }
+            setActivePersonaWalletBalance(balance - amount)
         } else {
             guard let walletContact = walletContactForCurrentChat else { return false }
             let balance = walletBalance(for: walletContact)
@@ -869,7 +974,7 @@ private final class ChatModel: ObservableObject {
         // Match the old, working two-identity behavior: a payment sent by
         // "对方" credits my wallet; a payment sent by "我" credits this chat's friend.
         if message.role == .other {
-            walletBalance += amount
+            setActivePersonaWalletBalance(activePersonaWalletBalance() + amount)
         } else {
             let walletContact: ChatContact?
             if currentContact?.isGroup == true,
@@ -946,9 +1051,7 @@ private final class ChatModel: ObservableObject {
 
     func updateAvatar(for role: ChatRole, data: Data) {
         if role == .me {
-            var updated = identity
-            updated.meAvatarData = data
-            identity = updated
+            updateActivePersonaAvatar(data)
         } else if var contact = currentContact {
             contact.avatarData = data
             updateContact(contact)
@@ -956,12 +1059,12 @@ private final class ChatModel: ObservableObject {
     }
 
     func name(for role: ChatRole) -> String {
-        let value = role == .me ? identity.me : (currentContact?.name ?? identity.other)
+        let value = role == .me ? activePersonaName : (currentContact?.name ?? identity.other)
         return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? role.rawValue : value
     }
 
     func avatar(for role: ChatRole) -> Data? {
-        role == .me ? identity.meAvatarData : currentContact?.avatarData
+        role == .me ? activePersonaAvatar : currentContact?.avatarData
     }
 
     private static func identityFileURL() -> URL? {
