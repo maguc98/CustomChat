@@ -3047,38 +3047,19 @@ struct ContentView: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
-                                style: .continuous
-                            )
-                        )
                 } else {
                     conversationBackground
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
-                                style: .continuous
-                            )
-                        )
                 }
             }
+            // Use one continuous inner mask only. Nested asymmetric masks and
+            // a second inset stroke created visible crescent/arc artifacts
+            // at the lower corners on compact screens.
             .clipShape(
                 RoundedRectangle(
                     cornerRadius: max(8, activeAppearance.chatPanelCornerRadius - activeAppearance.chatPanelOuterInset),
                     style: .continuous
                 )
             )
-            .overlay {
-                if activeAppearance.chatPanelShowsBorder {
-                    RoundedRectangle(
-                        cornerRadius: max(8, activeAppearance.chatPanelCornerRadius - activeAppearance.chatPanelOuterInset),
-                        style: .continuous
-                    )
-                    .stroke(Color.white.opacity(0.92), lineWidth: 1)
-                    .allowsHitTesting(false)
-                }
-            }
             .padding(activeAppearance.chatPanelOuterInset)
             .background(
                 Color(hex: activeAppearance.chatPanelOuterHex),
