@@ -29,6 +29,8 @@ final class VoiceCaptureManager: ObservableObject {
     @Published private(set) var modelStatus = "首次使用将下载约 168 MB 中文模型"
     @Published private(set) var isModelInstalled = false
     @Published private(set) var isDownloadingModel = false
+    @Published private(set) var downloadProgress: Double = 0
+    @Published private(set) var downloadingFileName = ""
     @Published private(set) var modelDownloadError: String?
     @Published var transcript = ""
 
@@ -106,12 +108,15 @@ final class VoiceCaptureManager: ObservableObject {
                 self.isModelInstalled = true
                 self.isDownloadingModel = false
                 self.modelStatus = "中文离线模型已就绪"
+                self.downloadProgress = 1
+                self.downloadingFileName = ""
             }
         } catch {
             await MainActor.run {
                 self.isDownloadingModel = false
                 self.isModelInstalled = false
                 self.modelStatus = "模型下载失败"
+                self.downloadingFileName = ""
                 self.modelDownloadError = error.localizedDescription
             }
         }
@@ -169,13 +174,46 @@ final class VoiceCaptureManager: ObservableObject {
                 self.modelStatus = "首次下载中文模型 · \(index + 1)/4"
             }
 
-            let (temporaryURL, response) = try await URLSession.shared.download(from: item.url)
+            await MainActor.run {
+                self.downloadingFileName = item.name
+                self.downloadProgress = 0
+            }
+            let temporaryURL = Self.modelDirectory.appendingPathComponent(".\(item.name).download")
+            if fm.fileExists(atPath: temporaryURL.path) { try fm.removeItem(at: temporaryURL) }
+            guard fm.createFile(atPath: temporaryURL.path, contents: nil),
+                  let output = try? FileHandle(forWritingTo: temporaryURL) else {
+                throw NSError(domain: "CustomChatASR", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "无法创建模型文件：\(item.name)"
+                ])
+            }
+            defer { try? output.close() }
+            let (bytes, response) = try await URLSession.shared.bytes(from: item.url)
             guard let http = response as? HTTPURLResponse,
                   (200...299).contains(http.statusCode) else {
                 throw NSError(domain: "CustomChatASR", code: 2, userInfo: [
                     NSLocalizedDescriptionKey: "下载模型文件失败：\(item.name)"
                 ])
             }
+            let expectedBytes = max(response.expectedContentLength, Int64(item.minimumBytes))
+            var receivedBytes: Int64 = 0
+            var buffer = Data()
+            buffer.reserveCapacity(64 * 1024)
+            for try await byte in bytes {
+                buffer.append(byte)
+                receivedBytes += 1
+                if buffer.count >= 64 * 1024 {
+                    try output.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                    let progress = min(1, Double(receivedBytes) / Double(expectedBytes))
+                    await MainActor.run {
+                        self.downloadProgress = progress
+                        self.modelStatus = "正在下载 \(item.name)"
+                    }
+                }
+            }
+            if !buffer.isEmpty { try output.write(contentsOf: buffer) }
+            try output.synchronize()
+            await MainActor.run { self.downloadProgress = 1 }
 
             let downloadedSize = (try? fm.attributesOfItem(atPath: temporaryURL.path)[.size] as? NSNumber)?.intValue ?? 0
             guard downloadedSize >= item.minimumBytes else {
@@ -2537,11 +2575,28 @@ struct ContentView: View {
                             .foregroundStyle(Macaron.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         if voiceCapture.isDownloadingModel {
-                            ProgressView().tint(Color(hex: 0x5799D9))
-                            Text(voiceCapture.modelStatus)
-                                .font(.system(size: 11))
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(voiceCapture.modelStatus)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(Macaron.secondary)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Text("\(Int(voiceCapture.downloadProgress * 100))%")
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                        .monospacedDigit()
+                                        .foregroundStyle(Color(hex: 0x4F91D2))
+                                }
+                                ProgressView(value: voiceCapture.downloadProgress)
+                                    .tint(Color(hex: 0x5799D9))
+                                HStack {
+                                    Text("文件 \(voiceCapture.downloadingFileName)")
+                                    Spacer()
+                                    Text("正在下载 · 请保持网络连接")
+                                }
+                                .font(.system(size: 10))
                                 .foregroundStyle(Macaron.secondary)
-                        } else {
+                            }
                             Button { Task { await voiceCapture.downloadModel() } } label: {
                                 HStack {
                                     Image(systemName: voiceCapture.isModelInstalled ? "arrow.down.circle" : "arrow.down.to.line")
