@@ -2881,58 +2881,15 @@ struct ContentView: View {
     }
 
     private var composer: some View {
-        VStack(spacing: 11) {
+        VStack(spacing: 9) {
             HStack(spacing: 7) {
                 Text("发送身份")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Macaron.secondary)
-                    .fixedSize()
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        if model.currentContact?.isGroup == true {
-                            Button {
-                                withAnimation(ChatMotion.layout) { model.selectGroupSender(nil) }
-                            } label: {
-                                senderIdentityChip(name: model.activePersonaName, selected: model.activeGroupSenderID == nil, tint: accentColor)
-                            }
-                            .buttonStyle(FluidPressButtonStyle())
-                            ForEach(model.currentContact.map { model.groupMembers($0).filter { $0.id != model.activeAccountID } } ?? []) { member in
-                                Button {
-                                    if model.isFriend(member.id) {
-                                        withAnimation(ChatMotion.layout) { model.selectGroupSender(member.id) }
-                                    } else {
-                                        selectedGroupMember = member
-                                    }
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
-                                        if !model.isFriend(member.id) {
-                                            Text("非好友")
-                                                .font(.system(size: 9, weight: .medium))
-                                                .foregroundStyle(Color(hex: 0xD18A55))
-                                        }
-                                    }
-                                }
-                                .buttonStyle(FluidPressButtonStyle())
-                            }
-                        } else {
-                            ForEach(ChatRole.allCases, id: \.self) { role in
-                                Button {
-                                    withAnimation(ChatMotion.layout) { model.activeRole = role }
-                                } label: {
-                                    senderIdentityChip(name: model.name(for: role), selected: model.activeRole == role, tint: role == .me ? accentColor : Macaron.pink)
-                                }
-                                .buttonStyle(FluidPressButtonStyle())
-                            }
-                        }
-                    }
-                    .padding(.vertical, 1)
-                }
-                .frame(maxWidth: .infinity)
-                .clipped()
+                Spacer(minLength: 8)
                 Button { messageFocused = false } label: {
                     Image(systemName: "keyboard.chevron.compact.down")
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
                         .frame(width: 30, height: 30)
                         .background(Color(hex: 0xF0F1F5), in: Circle())
@@ -2942,13 +2899,59 @@ struct ContentView: View {
                     NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
                 } label: {
                     Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
                         .frame(width: 30, height: 30)
                         .background(Color(hex: 0xF0F1F5), in: Circle())
                 }
                 .accessibilityLabel("滚动到聊天底部")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if model.currentContact?.isGroup == true {
+                        Button {
+                            withAnimation(ChatMotion.layout) { model.selectGroupSender(nil) }
+                        } label: {
+                            senderIdentityChip(name: model.activePersonaName, selected: model.activeGroupSenderID == nil, tint: accentColor)
+                        }
+                        .buttonStyle(FluidPressButtonStyle())
+                        ForEach(model.currentContact.map { model.groupMembers($0).filter { $0.id != model.activeAccountID } } ?? []) { member in
+                            Button {
+                                if model.isFriend(member.id) {
+                                    withAnimation(ChatMotion.layout) { model.selectGroupSender(member.id) }
+                                } else {
+                                    selectedGroupMember = member
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
+                                    if !model.isFriend(member.id) {
+                                        Text("非好友")
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundStyle(Color(hex: 0xD18A55))
+                                    }
+                                }
+                            }
+                            .buttonStyle(FluidPressButtonStyle())
+                        }
+                    } else {
+                        ForEach(ChatRole.allCases, id: \.self) { role in
+                            Button {
+                                withAnimation(ChatMotion.layout) { model.activeRole = role }
+                            } label: {
+                                senderIdentityChip(name: model.name(for: role), selected: model.activeRole == role, tint: role == .me ? accentColor : Macaron.pink)
+                            }
+                            .buttonStyle(FluidPressButtonStyle())
+                        }
+                    }
+                }
+                .padding(.horizontal, 1)
+                .padding(.vertical, 2)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 35)
 
             HStack(spacing: 11) {
                 if !isVoiceComposer {
