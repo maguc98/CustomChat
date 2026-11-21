@@ -1298,23 +1298,35 @@ private final class ChatModel: ObservableObject {
         contacts[index] = updated
     }
 
+    func removeFriend(_ contact: ChatContact) {
+        guard contact.isGroup != true, contact.id != activeAccountID else { return }
+        var ids = friendIDsByAccount[activeAccountID.uuidString] ?? []
+        ids.remove(contact.id.uuidString)
+        friendIDsByAccount[activeAccountID.uuidString] = ids
+        // Intentionally retain all conversation data and attachments. Removing a
+        // friend relationship must not erase a shared thread or affect other accounts.
+        if selectedContactID == contact.id {
+            persistCurrentThread()
+        }
+    }
+
     func deleteContact(_ contact: ChatContact) {
         if contact.isGroup == true {
             guard contact.ownerAccountID == activeAccountID else { return }
             contacts.removeAll { $0.id == contact.id }
         } else {
-            var ids = friendIDsByAccount[activeAccountID.uuidString] ?? []
-            ids.remove(contact.id.uuidString)
-            friendIDsByAccount[activeAccountID.uuidString] = ids
+            removeFriend(contact)
         }
-        threadMessages.removeValue(forKey: threadKey(for: contact.id, personaID: activePersonaID))
-        if selectedContactID == contact.id {
-            selectedContactID = friendContacts.first?.id
-            isSwitchingThread = true
-            messages = selectedContactID.map { loadThread(for: $0, personaID: activePersonaID) } ?? []
-            isSwitchingThread = false
+        if contact.isGroup == true {
+            threadMessages.removeValue(forKey: threadKey(for: contact.id, personaID: activePersonaID))
+            if selectedContactID == contact.id {
+                selectedContactID = friendContacts.first?.id
+                isSwitchingThread = true
+                messages = selectedContactID.map { loadThread(for: $0, personaID: activePersonaID) } ?? []
+                isSwitchingThread = false
+            }
+            UserDefaults.standard.set(try? JSONEncoder().encode(threadMessages), forKey: threadsKey)
         }
-        UserDefaults.standard.set(try? JSONEncoder().encode(threadMessages), forKey: threadsKey)
     }
 
     func preview(for contact: ChatContact) -> String {
@@ -2154,15 +2166,15 @@ struct ContentView: View {
                 ),
                 titleVisibility: .visible
             ) {
-                Button("从当前账号删除好友及本机聊天记录", role: .destructive) {
+                Button("从当前账号移除好友", role: .destructive) {
                     if let contact = contactPendingDeletion {
-                        model.deleteContact(contact)
+                        model.removeFriend(contact)
                     }
                     contactPendingDeletion = nil
                 }
                 Button("取消", role: .cancel) { contactPendingDeletion = nil }
             } message: {
-                Text("只会从当前账号的通讯录中删除；其他账号的好友关系不会改变。")
+                Text("只移除当前账号的好友关系，不会删除聊天记录、图片或语音，也不会影响其他账号。")
             }
             .confirmationDialog(
                 "删除与“\(chatHistoryPendingDeletion?.name ?? "好友")”的所有聊天记录？",
@@ -2621,6 +2633,7 @@ struct ContentView: View {
                     } else {
                         ForEach(friends) { contact in
                             SwipeRevealRow(
+                                revealOnLeft: true,
                                 content: {
                                     Button {
                                         model.selectContact(contact.id)
@@ -6196,28 +6209,41 @@ private struct AccountManagementView: View {
 private struct SwipeRevealRow<Content: View, Actions: View>: View {
     let content: Content
     let actions: Actions
+    let revealOnLeft: Bool
     @State private var revealWidth: CGFloat = 0
 
-    init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+    init(
+        revealOnLeft: Bool = false,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self.revealOnLeft = revealOnLeft
         self.content = content()
         self.actions = actions()
     }
 
+    private var actionWidth: CGFloat { revealOnLeft ? 92 : 160 }
+
     var body: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: revealOnLeft ? .trailing : .leading) {
             actions
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: revealOnLeft ? .trailing : .leading)
                 .opacity(revealWidth > 0 ? 1 : 0)
             content
-                .offset(x: revealWidth)
+                .offset(x: revealOnLeft ? -revealWidth : revealWidth)
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 18)
                         .onEnded { value in
                             let horizontal = value.translation.width
                             withAnimation(ChatMotion.layout) {
-                                if horizontal > 42 { revealWidth = 160 }
-                                else if horizontal < -35 || revealWidth > 0 { revealWidth = 0 }
+                                if revealOnLeft {
+                                    if horizontal < -42 { revealWidth = actionWidth }
+                                    else if horizontal > 35 || revealWidth > 0 { revealWidth = 0 }
+                                } else {
+                                    if horizontal > 42 { revealWidth = actionWidth }
+                                    else if horizontal < -35 || revealWidth > 0 { revealWidth = 0 }
+                                }
                             }
                         }
                 )
