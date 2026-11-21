@@ -1908,19 +1908,21 @@ struct ContentView: View {
             }
 
             HStack(spacing: 11) {
-                Button {
-                    messageFocused = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showAddMenu = true }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 21, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x5799D9))
-                        .frame(width: 46, height: 46)
-                        .background(accentColor.opacity(0.68), in: Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                if !isVoiceComposer {
+                    Button {
+                        messageFocused = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showAddMenu = true }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 21, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x5799D9))
+                            .frame(width: 46, height: 46)
+                            .background(accentColor.opacity(0.68), in: Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("添加聊天内容")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("添加聊天内容")
 
                 Group {
                     if isVoiceComposer {
