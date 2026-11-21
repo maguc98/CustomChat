@@ -703,7 +703,8 @@ private final class ChatModel: ObservableObject {
     @discardableResult
     func receivePayment(_ message: ChatMessage) -> Bool {
         guard message.kind == .redPacket || message.kind == .transfer,
-              let amount = message.amount, amount > 0,
+              message.role != activeRole,
+              let amount = message.amount, amount.isFinite, amount > 0,
               let index = messages.firstIndex(where: { $0.id == message.id }),
               !messages[index].isReceived else { return false }
 
@@ -1670,7 +1671,10 @@ struct ContentView: View {
                                     message: message,
                                     name: message.senderName ?? model.name(for: message.role),
                                     avatarData: message.senderAvatarData ?? model.avatar(for: message.role),
-                                    isMe: message.role == .me,
+                                    // The selected identity is always the outgoing/right-hand side.
+                                    // Switching between "我" and "小羊" mirrors the whole conversation
+                                    // without mutating the stored sender role.
+                                    isMe: message.role == model.activeRole,
                                     fontSize: messageFontSize,
                                     outgoingColor: accentColor,
                                     onEdit: { editing = message; editText = message.text },
@@ -2944,10 +2948,18 @@ private struct MessageRow: View {
                     Text(message.note.isEmpty ? "恭喜发财" : message.note).font(.system(size: 12)).opacity(0.8)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")").font(.system(size: 13, weight: .bold))
                     if !isMe && !message.isReceived {
-                        Button("拆开红包") { onReceiveTransfer() }
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xB94E42))
-                            .padding(.top, 3)
+                        Button(action: onReceiveTransfer) {
+                            Text("一键领取")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0xB94E42))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.72), in: Capsule())
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("一键领取红包")
+                        .padding(.top, 2)
                     } else if message.isReceived {
                         Text(isMe ? "对方已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")" : "已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
                             .font(.system(size: 11, weight: .semibold))
