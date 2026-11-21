@@ -1446,44 +1446,58 @@ struct ContentView: View {
     private var incomingBubbleColor: Color { Color(hex: activeAppearance.incomingBubbleHex) }
     private var messageTextColor: Color { Color(hex: activeAppearance.textHex) }
 
-    private var backgroundOption: String {
-        get { activeAppearance.backgroundOption }
-        set {
-            var value = activeAppearance
-            value.backgroundOption = newValue
-            switch newValue {
-            case "奶油白": value.chatBackgroundHex = 0xFBF8F1
-            case "淡粉": value.chatBackgroundHex = 0xFCF1F6
-            case "薄荷绿": value.chatBackgroundHex = 0xF0F8F3
-            default: value.chatBackgroundHex = 0xF5F7FB
-            }
-            model.updateActivePersonaAppearance(value)
+    private var backgroundOption: String { activeAppearance.backgroundOption }
+    private var themeOption: String { activeAppearance.themeOption }
+    private var fontOption: String { activeAppearance.fontOption }
+    private var soundOption: String { activeAppearance.soundOption }
+
+    private var backgroundOptionBinding: Binding<String> {
+        Binding(get: { backgroundOption }, set: { setBackgroundOption($0) })
+    }
+    private var themeOptionBinding: Binding<String> {
+        Binding(get: { themeOption }, set: { setThemeOption($0) })
+    }
+    private var fontOptionBinding: Binding<String> {
+        Binding(get: { fontOption }, set: { setFontOption($0) })
+    }
+    private var soundOptionBinding: Binding<String> {
+        Binding(get: { soundOption }, set: { setSoundOption($0) })
+    }
+
+    private func setBackgroundOption(_ option: String) {
+        var value = model.activePersonaAppearance
+        value.backgroundOption = option
+        switch option {
+        case "奶油白": value.chatBackgroundHex = 0xFBF8F1
+        case "淡粉": value.chatBackgroundHex = 0xFCF1F6
+        case "薄荷绿": value.chatBackgroundHex = 0xF0F8F3
+        default: value.chatBackgroundHex = 0xF5F7FB
         }
+        model.updateActivePersonaAppearance(value)
     }
 
-    private var themeOption: String {
-        get { activeAppearance.themeOption }
-        set {
-            var value = activeAppearance
-            value.themeOption = newValue
-            switch newValue {
-            case "樱花粉": value.accentHex = 0xF0B8D2
-            case "薄荷绿": value.accentHex = 0xA9DCC5
-            case "薰衣草紫": value.accentHex = 0xC9B9ED
-            default: value.accentHex = 0x8FC7FF
-            }
-            model.updateActivePersonaAppearance(value)
+    private func setThemeOption(_ option: String) {
+        var value = model.activePersonaAppearance
+        value.themeOption = option
+        switch option {
+        case "樱花粉": value.accentHex = 0xF0B8D2
+        case "薄荷绿": value.accentHex = 0xA9DCC5
+        case "薰衣草紫": value.accentHex = 0xC9B9ED
+        default: value.accentHex = 0x8FC7FF
         }
+        model.updateActivePersonaAppearance(value)
     }
 
-    private var fontOption: String {
-        get { activeAppearance.fontOption }
-        set { var value = activeAppearance; value.fontOption = newValue; model.updateActivePersonaAppearance(value) }
+    private func setFontOption(_ option: String) {
+        var value = model.activePersonaAppearance
+        value.fontOption = option
+        model.updateActivePersonaAppearance(value)
     }
 
-    private var soundOption: String {
-        get { activeAppearance.soundOption }
-        set { var value = activeAppearance; value.soundOption = newValue; model.updateActivePersonaAppearance(value) }
+    private func setSoundOption(_ option: String) {
+        var value = model.activePersonaAppearance
+        value.soundOption = option
+        model.updateActivePersonaAppearance(value)
     }
 
     private var walletTargetContact: ChatContact? {
@@ -1777,7 +1791,7 @@ struct ContentView: View {
             }
     }
 
-    private var photoHandlingPresentation: some View {
+    private var selectedPhotoPresentation: some View {
         paymentPresentation
             .onChange(of: selectedPhoto) { _, item in
                 guard let item else { return }
@@ -1794,6 +1808,10 @@ struct ContentView: View {
                     selectedPhoto = nil
                 }
             }
+    }
+
+    private var myAvatarPresentation: some View {
+        selectedPhotoPresentation
             .onChange(of: myAvatarSelection) { _, item in
                 guard let item else { return }
                 Task {
@@ -1806,6 +1824,10 @@ struct ContentView: View {
                     myAvatarSelection = nil
                 }
             }
+    }
+
+    private var otherAvatarPresentation: some View {
+        myAvatarPresentation
             .onChange(of: otherAvatarSelection) { _, item in
                 guard let item else { return }
                 Task {
@@ -1818,6 +1840,10 @@ struct ContentView: View {
                     otherAvatarSelection = nil
                 }
             }
+    }
+
+    private var photoHandlingPresentation: some View {
+        otherAvatarPresentation
             .onChange(of: chatBackgroundImageSelection) { _, item in
                 guard let item else { return }
                 Task {
@@ -1832,38 +1858,60 @@ struct ContentView: View {
             }
     }
 
-    private var preferenceDialogs: some View {
+    private var preferenceDialogs: some View { editMessageAlert }
+
+    private var backgroundOptionDialog: some View {
         photoHandlingPresentation
             .confirmationDialog("聊天背景", isPresented: $showBackgroundPicker, titleVisibility: .visible) {
                 ForEach(["雾蓝白", "奶油白", "淡粉", "薄荷绿"], id: \.self) { option in
-                    Button(option) { backgroundOption = option }
+                    Button(option) { setBackgroundOption(option) }
                 }
             }
+    }
+
+    private var themeOptionDialog: some View {
+        backgroundOptionDialog
             .confirmationDialog("主题颜色", isPresented: $showThemePicker, titleVisibility: .visible) {
                 ForEach(["浅蓝", "樱花粉", "薄荷绿", "薰衣草紫"], id: \.self) { option in
-                    Button(option) { themeOption = option }
+                    Button(option) { setThemeOption(option) }
                 }
             }
+    }
+
+    private var fontOptionDialog: some View {
+        themeOptionDialog
             .confirmationDialog("字体大小", isPresented: $showFontPicker, titleVisibility: .visible) {
                 ForEach(["偏小", "标准", "偏大"], id: \.self) { option in
-                    Button(option) { fontOption = option }
+                    Button(option) { setFontOption(option) }
                 }
             }
+    }
+
+    private var soundOptionDialog: some View {
+        fontOptionDialog
             .confirmationDialog("消息提示音", isPresented: $showSoundPicker, titleVisibility: .visible) {
                 ForEach(["轻柔", "清脆", "关闭"], id: \.self) { option in
                     Button(option) {
-                        soundOption = option
+                        setSoundOption(option)
                         if option != "关闭" { playPreviewSound() }
                     }
                 }
             }
+    }
+
+    private var insufficientBalanceAlert: some View {
+        soundOptionDialog
             .alert("余额不足", isPresented: $showInsufficientBalance) {
                 Button("知道了", role: .cancel) {}
             } message: {
                 Text(model.activeRole == .me
-                     ? "我方账户余额不足，请先在“我的”页面调整余额。"
+                     ? "当前账号余额不足，请先在“我的”页面调整余额。"
                      : "对方账户余额不足，请先为对方身份补充余额。")
             }
+    }
+
+    private var clearHistoryAlert: some View {
+        insufficientBalanceAlert
             .alert("清空聊天记录？", isPresented: $showClearConfirmation) {
                 Button("取消", role: .cancel) {}
                 Button("清空", role: .destructive) {
@@ -1872,6 +1920,10 @@ struct ContentView: View {
             } message: {
                 Text("此操作会删除本机保存的全部消息和图片，无法撤销。")
             }
+    }
+
+    private var editMessageAlert: some View {
+        clearHistoryAlert
             .alert(editing?.kind == .voice ? "自定义语音文字" : "编辑消息", isPresented: Binding(
                 get: { editing != nil },
                 set: { if !$0 { editing = nil } }
@@ -3011,13 +3063,13 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("聊天外观") {
-                    Picker("聊天背景", selection: Binding(get: { backgroundOption }, set: { backgroundOption = $0 })) {
+                    Picker("聊天背景", selection: backgroundOptionBinding) {
                         ForEach(["雾蓝白", "奶油白", "淡粉", "薄荷绿"], id: \.self) { Text($0) }
                     }
-                    Picker("主题颜色", selection: Binding(get: { themeOption }, set: { themeOption = $0 })) {
+                    Picker("主题颜色", selection: themeOptionBinding) {
                         ForEach(["浅蓝", "樱花粉", "薄荷绿", "薰衣草紫"], id: \.self) { Text($0) }
                     }
-                    Picker("文字大小", selection: Binding(get: { fontOption }, set: { fontOption = $0 })) {
+                    Picker("文字大小", selection: fontOptionBinding) {
                         ForEach(["偏小", "标准", "偏大"], id: \.self) { Text($0) }
                     }
                 }
@@ -3102,7 +3154,7 @@ struct ContentView: View {
                 .onAppear { voiceCapture.refreshModelStatus() }
 
                 Section("消息提醒") {
-                    Picker("消息提醒", selection: Binding(get: { soundOption }, set: { soundOption = $0 })) {
+                    Picker("消息提醒", selection: soundOptionBinding) {
                         ForEach(["轻柔", "清脆", "关闭"], id: \.self) { Text($0) }
                     }
                 }
