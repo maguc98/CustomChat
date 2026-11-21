@@ -571,6 +571,14 @@ struct CallRecord: Identifiable, Codable {
     }
 }
 
+struct MomentComment: Identifiable, Codable {
+    var id: UUID
+    var author: String
+    var text: String
+    var date: Date
+    init(author: String, text: String) { id = UUID(); self.author = author; self.text = text; date = .now }
+}
+
 struct MomentPost: Identifiable, Codable {
     var id: UUID
     var text: String
@@ -2411,7 +2419,22 @@ struct ContentView: View {
                     }
                     .presentationDragIndicator(.visible)
                 }
-                .sheet(isPresented: $showMyMomentEditor) {
+                .sheet(item: Binding(
+                get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
+                set: { activeMomentForComments = $0?.id }
+            )) { target in
+                MomentCommentsSheet(
+                    comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
+                    onSend: { value in
+                        updateMoment(target.id) {
+                            var list = $0.comments ?? []
+                            list.append(MomentComment(author: model.identity.me, text: value))
+                            $0.comments = list
+                        }
+                    }
+                )
+            }
+            .sheet(isPresented: $showMyMomentEditor) {
                     MomentEditorSheet(
                         title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
                         initialText: myMomentDraft,
@@ -2522,6 +2545,23 @@ struct ContentView: View {
         }
     }
 
+    @State private var activeMomentForComments: UUID?
+
+    private func updateMoment(_ id: UUID, mutate: (inout MomentPost) -> Void) {
+        withAnimation(ChatMotion.layout) {
+            if let index = model.myMoments.firstIndex(where: { $0.id == id }) {
+                mutate(&model.myMoments[index])
+                return
+            }
+            for index in model.contacts.indices {
+                if let postIndex = model.contacts[index].moments.firstIndex(where: { $0.id == id }) {
+                    mutate(&model.contacts[index].moments[postIndex])
+                    return
+                }
+            }
+        }
+    }
+
     private var momentsFeedItems: [MomentFeedItem] {
         var items = model.myMoments.map { MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0) }
         for contact in model.contacts where contact.isGroup != true {
@@ -2552,6 +2592,43 @@ struct ContentView: View {
                                 if !item.post.text.isEmpty { Text(item.post.text).font(.system(size: 14)).foregroundStyle(Macaron.ink) }
                                 if let data = item.post.mediaData { MomentMediaView(data: data, mediaType: item.post.mediaType) }
                                 Text(item.post.date, format: .dateTime.year().month().day().hour().minute()).font(.system(size: 10)).foregroundStyle(Macaron.secondary)
+                                HStack(spacing: 0) {
+                                    Button {
+                                        updateMoment(item.id) { $0.isLiked = !($0.isLiked ?? false) }
+                                    } label: {
+                                        Label(item.post.isLiked == true ? "已赞" : "赞", systemImage: item.post.isLiked == true ? "heart.fill" : "heart")
+                                            .foregroundStyle(item.post.isLiked == true ? Color(hex: 0xE77D9B) : Macaron.secondary)
+                                            .scaleEffect(item.post.isLiked == true ? 1.05 : 1)
+                                    }
+                                    Spacer()
+                                    Button { activeMomentForComments = item.id } label: {
+                                        Label("评论 \(item.post.comments?.count ?? 0)", systemImage: "bubble.right")
+                                            .foregroundStyle(Macaron.secondary)
+                                    }
+                                    Spacer()
+                                    ShareLink(item: "\(item.author) 的朋友圈：\(item.post.text)") {
+                                        Label("转发", systemImage: "arrowshape.turn.up.right")
+                                            .foregroundStyle(Macaron.secondary)
+                                    }
+                                    .simultaneousGesture(TapGesture().onEnded {
+                                        updateMoment(item.id) { $0.shareCount = ($0.shareCount ?? 0) + 1 }
+                                    })
+                                }
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(.top, 7)
+                                if let comments = item.post.comments, !comments.isEmpty {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        ForEach(comments) { comment in
+                                            HStack(alignment: .top, spacing: 4) {
+                                                Text(comment.author + "：").fontWeight(.semibold).foregroundStyle(Color(hex: 0x4F91D2))
+                                                Text(comment.text).foregroundStyle(Macaron.ink)
+                                            }.font(.system(size: 11))
+                                        }
+                                    }
+                                    .padding(9)
+                                    .background(Macaron.background, in: RoundedRectangle(cornerRadius: 10))
+                                    .transition(.chatCinematic)
+                                }
                             }
                         }
                         .padding(15).background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous)).padding(.horizontal, 16)
@@ -4080,6 +4157,54 @@ private struct MomentMediaView: View {
     }
 }
 
+
+private struct MomentCommentTarget: Identifiable { let id: UUID }
+
+private struct MomentCommentsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = ""
+    let comments: [MomentComment]
+    let onSend: (String) -> Void
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        if comments.isEmpty {
+                            EmptyHint(symbol: "bubble.left", title: "还没有评论", subtitle: "来发表第一条评论吧。").padding(.top, 55)
+                        } else {
+                            ForEach(comments) { comment in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(comment.author).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
+                                    Text(comment.text).font(.system(size: 14)).foregroundStyle(Macaron.ink)
+                                }
+                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 14))
+                                .transition(.chatCinematic)
+                            }
+                        }
+                    }.padding(16)
+                }
+                HStack(spacing: 9) {
+                    TextField("写下你的评论…", text: $draft, axis: .vertical)
+                        .lineLimit(1...4).padding(11)
+                        .background(Macaron.card, in: Capsule())
+                    Button {
+                        let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !value.isEmpty else { return }
+                        onSend(value); draft = ""
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 29)).foregroundStyle(Color(hex: 0x5D9FE2))
+                    }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.padding(12).background(Macaron.background)
+            }
+            .background(Macaron.background)
+            .navigationTitle("评论").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+}
 
 private struct MomentFeedItem: Identifiable {
     let author: String
