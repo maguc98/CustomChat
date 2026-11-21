@@ -558,6 +558,10 @@ struct ChatMessage: Identifiable, Codable {
 struct PersonaAppearance: Codable {
     var appBackgroundHex: UInt = 0xF5F7FB
     var chatBackgroundHex: UInt = 0xF5F7FB
+    var chatPanelOuterHex: UInt = 0xFFFFFF
+    var chatPanelCornerRadius: Double = 28
+    var chatPanelOuterInset: Double = 7
+    var chatPanelShowsBorder: Bool = true
     var outgoingBubbleHex: UInt = 0xD8EAFF
     var incomingBubbleHex: UInt = 0xFFFFFF
     var textHex: UInt = 0x202A3A
@@ -567,6 +571,34 @@ struct PersonaAppearance: Codable {
     var fontOption: String = "标准"
     var soundOption: String = "轻柔"
     var chatBackgroundImageData: Data?
+
+    private enum CodingKeys: String, CodingKey {
+        case appBackgroundHex, chatBackgroundHex, chatPanelOuterHex
+        case chatPanelCornerRadius, chatPanelOuterInset, chatPanelShowsBorder
+        case outgoingBubbleHex, incomingBubbleHex, textHex, accentHex
+        case backgroundOption, themeOption, fontOption, soundOption, chatBackgroundImageData
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        appBackgroundHex = try values.decodeIfPresent(UInt.self, forKey: .appBackgroundHex) ?? 0xF5F7FB
+        chatBackgroundHex = try values.decodeIfPresent(UInt.self, forKey: .chatBackgroundHex) ?? 0xF5F7FB
+        chatPanelOuterHex = try values.decodeIfPresent(UInt.self, forKey: .chatPanelOuterHex) ?? 0xFFFFFF
+        chatPanelCornerRadius = try values.decodeIfPresent(Double.self, forKey: .chatPanelCornerRadius) ?? 28
+        chatPanelOuterInset = try values.decodeIfPresent(Double.self, forKey: .chatPanelOuterInset) ?? 7
+        chatPanelShowsBorder = try values.decodeIfPresent(Bool.self, forKey: .chatPanelShowsBorder) ?? true
+        outgoingBubbleHex = try values.decodeIfPresent(UInt.self, forKey: .outgoingBubbleHex) ?? 0xD8EAFF
+        incomingBubbleHex = try values.decodeIfPresent(UInt.self, forKey: .incomingBubbleHex) ?? 0xFFFFFF
+        textHex = try values.decodeIfPresent(UInt.self, forKey: .textHex) ?? 0x202A3A
+        accentHex = try values.decodeIfPresent(UInt.self, forKey: .accentHex) ?? 0x8FC7FF
+        backgroundOption = try values.decodeIfPresent(String.self, forKey: .backgroundOption) ?? "雾蓝白"
+        themeOption = try values.decodeIfPresent(String.self, forKey: .themeOption) ?? "浅蓝"
+        fontOption = try values.decodeIfPresent(String.self, forKey: .fontOption) ?? "标准"
+        soundOption = try values.decodeIfPresent(String.self, forKey: .soundOption) ?? "轻柔"
+        chatBackgroundImageData = try values.decodeIfPresent(Data.self, forKey: .chatBackgroundImageData)
+    }
 }
 
 struct ChatIdentity: Codable {
@@ -3004,27 +3036,34 @@ struct ContentView: View {
                         )
                 }
             }
-            .background(
-                Color.white,
-                in: UnevenRoundedRectangle(
-                    cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
-                    style: .continuous
-                )
-            )
             .clipShape(
-                UnevenRoundedRectangle(
-                    cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
+                RoundedRectangle(
+                    cornerRadius: max(8, activeAppearance.chatPanelCornerRadius - activeAppearance.chatPanelOuterInset),
                     style: .continuous
                 )
             )
-            .overlay(
-                UnevenRoundedRectangle(
-                    cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
-                    style: .continuous
-                )
-                    .stroke(Color.white.opacity(0.9), lineWidth: 1)
+            .overlay {
+                if activeAppearance.chatPanelShowsBorder {
+                    RoundedRectangle(
+                        cornerRadius: max(8, activeAppearance.chatPanelCornerRadius - activeAppearance.chatPanelOuterInset),
+                        style: .continuous
+                    )
+                    .stroke(Color.white.opacity(0.92), lineWidth: 1)
                     .allowsHitTesting(false)
+                }
+            }
+            .padding(activeAppearance.chatPanelOuterInset)
+            .background(
+                Color(hex: activeAppearance.chatPanelOuterHex),
+                in: RoundedRectangle(cornerRadius: activeAppearance.chatPanelCornerRadius, style: .continuous)
             )
+            .overlay {
+                if activeAppearance.chatPanelShowsBorder {
+                    RoundedRectangle(cornerRadius: activeAppearance.chatPanelCornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(0.95), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
             .padding(.horizontal, 12)
             .padding(.top, 6)
             .padding(.bottom, 0)
@@ -4156,7 +4195,37 @@ struct ContentView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(messageTextColor)
             appearanceColorRow("整体背景", keyPath: \.appBackgroundHex)
-            appearanceColorRow("聊天背景", keyPath: \.chatBackgroundHex)
+            appearanceColorRow("聊天内容背景", keyPath: \.chatBackgroundHex)
+            appearanceColorRow("聊天面板外层背景", keyPath: \.chatPanelOuterHex)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("四角 R 角大小")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(messageTextColor)
+                    Spacer()
+                    Text("\\(Int(activeAppearance.chatPanelCornerRadius)) pt")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                Slider(value: appearanceDoubleBinding(\.chatPanelCornerRadius), in: 12...40, step: 1)
+                    .tint(Macaron.blue)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text("外层留白")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(messageTextColor)
+                    Spacer()
+                    Text("\\(Int(activeAppearance.chatPanelOuterInset)) pt")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                Slider(value: appearanceDoubleBinding(\.chatPanelOuterInset), in: 0...16, step: 1)
+                    .tint(Macaron.blue)
+            }
+            Toggle("显示外层描边", isOn: appearanceBoolBinding(\.chatPanelShowsBorder))
+                .font(.system(size: 13, weight: .medium))
+                .tint(Macaron.blue)
             appearanceColorRow("我方聊天气泡", keyPath: \.outgoingBubbleHex)
             appearanceColorRow("好友聊天气泡", keyPath: \.incomingBubbleHex)
             appearanceColorRow("文字颜色", keyPath: \.textHex)
@@ -4186,6 +4255,28 @@ struct ContentView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func appearanceDoubleBinding(_ keyPath: WritableKeyPath<PersonaAppearance, Double>) -> Binding<Double> {
+        Binding(
+            get: { model.activePersonaAppearance[keyPath: keyPath] },
+            set: { value in
+                var appearance = model.activePersonaAppearance
+                appearance[keyPath: keyPath] = value
+                model.updateActivePersonaAppearance(appearance)
+            }
+        )
+    }
+
+    private func appearanceBoolBinding(_ keyPath: WritableKeyPath<PersonaAppearance, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.activePersonaAppearance[keyPath: keyPath] },
+            set: { value in
+                var appearance = model.activePersonaAppearance
+                appearance[keyPath: keyPath] = value
+                model.updateActivePersonaAppearance(appearance)
+            }
+        )
     }
 
     private func appearanceColorRow(_ title: String, keyPath: WritableKeyPath<PersonaAppearance, UInt>) -> some View {
