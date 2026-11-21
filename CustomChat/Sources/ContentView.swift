@@ -16,7 +16,7 @@ enum ChatRole: String, CaseIterable, Codable {
     case me = "我"
 }
 
-enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, call, voice }
+enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, paymentReceipt, call, voice }
 
 private let waveformSampleCount = 40
 
@@ -709,6 +709,7 @@ private final class ChatModel: ObservableObject {
         case .image: return "发来了一张图片"
         case .redPacket: return "发送了一个红包"
         case .transfer: return "发送了一笔转账"
+        case .paymentReceipt: return "已收款"
         case .call: return last.note
         case .voice: return "语音消息"
         case .text: return last.text
@@ -773,6 +774,16 @@ private final class ChatModel: ObservableObject {
 
         var updatedMessages = messages
         updatedMessages[index].isReceived = true
+        updatedMessages.append(
+            ChatMessage(
+                role: activeRole,
+                kind: .paymentReceipt,
+                amount: amount,
+                note: message.kind == .transfer ? "转账" : "红包",
+                senderName: outgoingSenderName,
+                senderAvatarData: outgoingSenderAvatar
+            )
+        )
         messages = updatedMessages
         return true
     }
@@ -3105,6 +3116,25 @@ private struct MessageRow: View {
             .padding(12)
             .frame(width: 225, alignment: .leading)
             .background(Color(hex: 0xE7F0FC), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        } else if message.kind == .paymentReceipt {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().stroke(Color.white.opacity(0.95), lineWidth: 3).frame(width: 42, height: 42)
+                    Image(systemName: "checkmark").font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("¥\\(message.amount ?? 0, specifier: "%.2f")")
+                        .font(.system(size: 24, weight: .medium, design: .rounded)).monospacedDigit()
+                    Text("已收款").font(.system(size: 17, weight: .medium))
+                    Text(message.note.isEmpty ? "转账" : message.note)
+                        .font(.system(size: 12, weight: .medium)).padding(.top, 7)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16).padding(.vertical, 15)
+            .frame(width: 225, alignment: .leading)
+            .background(Color(hex: 0xF9C58F), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         } else if message.kind == .redPacket {
             HStack(spacing: 11) {
                 Image(systemName: "gift.fill").font(.system(size: 25)).foregroundStyle(.white)
