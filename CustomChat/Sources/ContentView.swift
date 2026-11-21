@@ -1193,8 +1193,6 @@ struct ContentView: View {
     @State private var showTransferInput = false
     @State private var paymentAmountDraft = ""
     @State private var paymentNoteDraft = ""
-    @State private var receivedPaymentAmount: Double = 0
-    @State private var showReceivedPayment = false
     @State private var timeEditingMessage: ChatMessage?
     @State private var editedMessageTime = Date()
     @State private var myAvatarSelection: PhotosPickerItem?
@@ -1429,21 +1427,6 @@ struct ContentView: View {
                 }
                 .presentationDetents([.medium])
             }
-            .overlay {
-                if showReceivedPayment {
-                    ReceivedPaymentOverlay(
-                        amount: receivedPaymentAmount,
-                        senderName: model.name(for: .other)
-                    ) {
-                        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                            showReceivedPayment = false
-                        }
-                    }
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
-                    .zIndex(100)
-                }
-            }
-            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showReceivedPayment)
             .fullScreenCover(isPresented: Binding(
                 get: { activeCall != nil && !isCallMinimized },
                 set: { presented in
@@ -1751,8 +1734,7 @@ struct ContentView: View {
                                     onImageTap: { data in previewPhoto = SelectedPhoto(data: data) },
                                     onReceiveTransfer: {
                                         if model.receivePayment(message) {
-                                            receivedPaymentAmount = message.amount ?? 0
-                                            showReceivedPayment = true
+                                            NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
                                         }
                                     }
                                 )
@@ -3047,7 +3029,7 @@ private struct MessageRow: View {
                     Image(systemName: "checkmark").font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("¥\\(message.amount ?? 0, specifier: "%.2f")")
+                    Text("¥\(message.amount ?? 0, specifier: "%.2f")")
                         .font(.system(size: 24, weight: .medium, design: .rounded)).monospacedDigit()
                     Text("已收款").font(.system(size: 17, weight: .medium))
                     Text(message.note.isEmpty ? "转账" : message.note)
@@ -3081,7 +3063,7 @@ private struct MessageRow: View {
                         .accessibilityLabel("一键领取红包")
                         .padding(.top, 2)
                     } else if message.isReceived {
-                        Text(isMe ? "对方已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")" : "已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
+                        Text(isMe ? "对方已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")" : "已被接收 · ¥\(message.amount ?? 0, specifier: "%.2f")")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
@@ -3104,7 +3086,7 @@ private struct MessageRow: View {
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                             .padding(.top, 3)
                     } else if message.isReceived {
-                        Text(isMe ? "对方已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")" : "已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")")
+                        Text(isMe ? "对方已收款 · ¥\(message.amount ?? 0, specifier: "%.2f")" : "已被接收 · ¥\(message.amount ?? 0, specifier: "%.2f")")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
@@ -4013,82 +3995,5 @@ private extension Color {
             green: Double((hex >> 8) & 0xFF) / 255,
             blue: Double(hex & 0xFF) / 255
         )
-    }
-}
-
-private struct ReceivedPaymentOverlay: View {
-    let amount: Double
-    let senderName: String
-    let onDismiss: () -> Void
-
-    private let mint = Color(hex: 0x69B99A)
-    private let ink = Color(hex: 0x25332F)
-    private let secondary = Color(hex: 0x89948F)
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.30)
-                .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                ZStack {
-                    Circle()
-                        .fill(Color(hex: 0xE5F5EC))
-                        .frame(width: 66, height: 66)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 27, weight: .bold))
-                        .foregroundStyle(mint)
-                }
-                .padding(.top, 28)
-
-                Text("收款成功")
-                    .font(.system(size: 21, weight: .bold))
-                    .foregroundStyle(ink)
-                    .padding(.top, 17)
-
-                Text("¥\\(amount, specifier: "%.2f")")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(ink)
-                    .padding(.top, 12)
-
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("已存入我的钱包")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundStyle(mint)
-                .padding(.top, 12)
-
-                Text("来自 \\(senderName) 的红包")
-                    .font(.system(size: 12))
-                    .foregroundStyle(secondary)
-                    .padding(.top, 8)
-
-                Button(action: onDismiss) {
-                    Text("完成")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(mint, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 22)
-                .padding(.top, 26)
-                .padding(.bottom, 22)
-            }
-            .frame(maxWidth: 330)
-            .background(Color(hex: 0xFFFDF8), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(Color.white.opacity(0.9), lineWidth: 1)
-            }
-            .shadow(color: Color.black.opacity(0.16), radius: 30, x: 0, y: 16)
-            .padding(.horizontal, 28)
-            .accessibilityElement(children: .contain)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
