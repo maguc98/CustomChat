@@ -1684,7 +1684,7 @@ struct ContentView: View {
             }
             .sheet(item: $previewPhoto) { photo in
                 PhotoPreviewView(images: photo.gallery, initialIndex: photo.index)
-                    .presentationDetents([.large])
+                    .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(28)
             }
@@ -3954,9 +3954,11 @@ private struct AddContentMenuItem: View {
 private struct PhotoPreviewView: View {
     let images: [Data]
     let initialIndex: Int
-    @Environment(\\.dismiss) private var dismiss
+    @Environment(\.dismiss) private var dismiss
     @State private var currentIndex: Int
     @State private var zoomScale: CGFloat = 1
+    @State private var imageOffset: CGSize = .zero
+    @State private var dragStartOffset: CGSize = .zero
     @State private var dragTranslation: CGFloat = 0
 
     init(images: [Data], initialIndex: Int) {
@@ -3974,21 +3976,42 @@ private struct PhotoPreviewView: View {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                             .scaleEffect(zoomScale)
-                            .offset(x: zoomScale > 1.02 ? 0 : dragTranslation)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .offset(
+                                x: zoomScale > 1.02 ? imageOffset.width : dragTranslation,
+                                y: zoomScale > 1.02 ? imageOffset.height : 0
+                            )
                             .contentShape(Rectangle())
-                            .gesture(
-                                DragGesture(minimumDistance: 12)
+                            .simultaneousGesture(
+                                MagnificationGesture()
                                     .onChanged { value in
+                                        zoomScale = min(max(value, 1), 5)
+                                        if zoomScale <= 1.02 { imageOffset = .zero }
+                                    }
+                                    .onEnded { _ in
                                         if zoomScale <= 1.02 {
+                                            withAnimation(ChatMotion.layout) { imageOffset = .zero }
+                                        }
+                                    }
+                            )
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 8)
+                                    .onChanged { value in
+                                        if zoomScale > 1.02 {
+                                            imageOffset = CGSize(
+                                                width: dragStartOffset.width + value.translation.width,
+                                                height: dragStartOffset.height + value.translation.height
+                                            )
+                                        } else {
                                             dragTranslation = value.translation.width
                                         }
                                     }
                                     .onEnded { value in
-                                        guard zoomScale <= 1.02 else { return }
-                                        if value.translation.width < -65 {
+                                        if zoomScale > 1.02 {
+                                            dragStartOffset = imageOffset
+                                        } else if value.translation.width < -65 {
                                             changeImage(by: 1)
                                         } else if value.translation.width > 65 {
                                             changeImage(by: -1)
@@ -3999,7 +4022,13 @@ private struct PhotoPreviewView: View {
                             )
                             .onTapGesture(count: 2) {
                                 withAnimation(ChatMotion.layout) {
-                                    zoomScale = zoomScale > 1.02 ? 1 : 2.4
+                                    if zoomScale > 1.02 {
+                                        zoomScale = 1
+                                        imageOffset = .zero
+                                        dragStartOffset = .zero
+                                    } else {
+                                        zoomScale = 2.4
+                                    }
                                 }
                             }
                             .frame(width: geometry.size.width - 32, height: geometry.size.height - 32)
@@ -4009,7 +4038,7 @@ private struct PhotoPreviewView: View {
                     }
                 }
             }
-            .navigationTitle(images.count > 1 ? "\\(currentIndex + 1) / \\(images.count)" : "图片预览")
+            .navigationTitle(images.count > 1 ? "\(currentIndex + 1) / \(images.count)" : "图片预览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -4028,11 +4057,12 @@ private struct PhotoPreviewView: View {
         withAnimation(ChatMotion.layout) {
             currentIndex = next
             zoomScale = 1
+            imageOffset = .zero
+            dragStartOffset = .zero
             dragTranslation = 0
         }
     }
 }
-
 private struct MinimizedCallPill: View {
     @ObservedObject var call: SimulatedCall
     @Binding var position: CGPoint?
