@@ -4620,34 +4620,29 @@ private struct MomentEditorSheet: View {
 private struct MomentMediaView: View {
     let data: Data
     let mediaType: String?
-    @State private var player: AVPlayer?
+    @State private var isPreviewPresented = false
 
     var body: some View {
-        Group {
-            if mediaType == "video" {
-                VideoPlayer(player: player)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 210)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .onAppear { preparePlayer() }
-                    .onDisappear { player?.pause(); player = nil }
-            } else if let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
+        Button {
+            isPreviewPresented = true
+        } label: {
+            MomentCommentThumbnail(data: data, mediaType: mediaType)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(Color.black.opacity(0.36), in: Circle())
+                        .padding(5)
+                }
         }
-    }
-
-    private func preparePlayer() {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("moment-\(UUID().uuidString).mov")
-        do {
-            try data.write(to: url, options: .atomic)
-            player = AVPlayer(url: url)
-        } catch {
-            NSLog("CustomChat: unable to prepare moment video: %@", error.localizedDescription)
+        .buttonStyle(FluidPressButtonStyle())
+        .accessibilityLabel(mediaType == "video" ? "放大预览朋友圈视频" : "放大预览朋友圈图片")
+        .sheet(isPresented: $isPreviewPresented) {
+            MomentMediaPreviewSheet(data: data, mediaType: mediaType)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
         }
     }
 }
