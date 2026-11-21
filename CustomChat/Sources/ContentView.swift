@@ -1541,7 +1541,7 @@ struct ContentView: View {
         )) { target in
             MomentCommentsSheet(
                 comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
-                authorOptions: ([model.identity.me] + model.contacts.map { $0.name }).reduce(into: [String]()) { result, name in
+                authorOptions: ([model.activePersonaName] + model.contacts.filter { $0.isGroup != true }.map { $0.name }).reduce(into: [String]()) { result, name in
                     if !result.contains(name) { result.append(name) }
                 },
                 onSend: { comment in
@@ -2532,7 +2532,7 @@ struct ContentView: View {
     private var myMomentsProfileSection: some View {
         VStack(spacing: 12) {
             myMomentsHeader
-            if model.myMoments.isEmpty {
+            if model.activePersonaMoments.isEmpty {
                 EmptyHint(symbol: "text.bubble", title: "还没有朋友圈", subtitle: "记录生活，发布第一条动态吧。")
                     .padding(.vertical, 20)
             } else {
@@ -2549,7 +2549,7 @@ struct ContentView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Macaron.ink)
             Spacer()
-            if !model.myMoments.isEmpty {
+            if !model.activePersonaMoments.isEmpty {
                 Button("查看全部") { showAllMyMoments = true }
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x4F91D2))
@@ -2568,24 +2568,24 @@ struct ContentView: View {
     }
 
     private var myMomentsPreviewRows: some View {
-        ForEach(Array(model.myMoments.prefix(3))) { post in
+        ForEach(Array(model.activePersonaMoments.prefix(3))) { post in
             profileMomentCard(post: post, inAllList: false)
                 .padding(.horizontal, 18)
                 .transition(.chatCinematic)
         }
-        .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
+        .animation(ChatMotion.layout, value: model.activePersonaMoments.map { $0.id })
     }
 
     private var myMomentsAllSheet: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 12) {
-                    ForEach(model.myMoments) { post in
+                    ForEach(model.activePersonaMoments) { post in
                         profileMomentCard(post: post, inAllList: true)
                     }
                 }
                 .padding(18)
-                .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
+                .animation(ChatMotion.layout, value: model.activePersonaMoments.map { $0.id })
             }
             .background(Macaron.background)
             .navigationTitle("我的朋友圈")
@@ -2633,7 +2633,7 @@ struct ContentView: View {
             }
             Button("删除动态", systemImage: "trash", role: .destructive) {
                 withAnimation(ChatMotion.layout) {
-                    model.myMoments.removeAll { $0.id == post.id }
+                    model.updateActivePersonaMoments(model.activePersonaMoments.filter { $0.id != post.id })
                 }
             }
         }
@@ -2643,17 +2643,18 @@ struct ContentView: View {
         MomentEditorSheet(
             title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
             initialText: myMomentDraft,
-            initialMediaData: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaData },
-            initialMediaType: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaType }
+            initialMediaData: editingMyMomentID.flatMap { id in model.activePersonaMoments.first(where: { $0.id == id })?.mediaData },
+            initialMediaType: editingMyMomentID.flatMap { id in model.activePersonaMoments.first(where: { $0.id == id })?.mediaType }
         ) { text, mediaData, mediaType in
-            if let id = editingMyMomentID,
-               let index = model.myMoments.firstIndex(where: { $0.id == id }) {
-                model.myMoments[index].text = text
-                model.myMoments[index].mediaData = mediaData
-                model.myMoments[index].mediaType = mediaType
+            var posts = model.activePersonaMoments
+            if let id = editingMyMomentID, let index = posts.firstIndex(where: { $0.id == id }) {
+                posts[index].text = text
+                posts[index].mediaData = mediaData
+                posts[index].mediaType = mediaType
             } else {
-                model.myMoments.insert(MomentPost(text: text, mediaData: mediaData, mediaType: mediaType), at: 0)
+                posts.insert(MomentPost(text: text, mediaData: mediaData, mediaType: mediaType), at: 0)
             }
+            model.updateActivePersonaMoments(posts)
         }
     }
 
@@ -2773,7 +2774,7 @@ struct ContentView: View {
     }
 
     private var momentsFeedItems: [MomentFeedItem] {
-        var items = model.myMoments.map { MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0) }
+        var items = model.contacts.first(where: { $0.id == model.activePersonaID })?.moments.map { MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0) } ?? model.myMoments.map { MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0) }
         for contact in model.contacts where contact.isGroup != true {
             items.append(contentsOf: contact.moments.map { MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0) })
         }
