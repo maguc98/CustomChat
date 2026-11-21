@@ -1961,12 +1961,15 @@ struct ContentView: View {
                                     }
                                 }.buttonStyle(.plain).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
                                 VStack(alignment: .leading, spacing: 4) {
-                                    HStack(alignment: .center, spacing: 3) {
-                                        ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
+                                    HStack(alignment: .center, spacing: 1.5) {
+                                        ForEach(Array(voiceCapture.samples.suffix(28).enumerated()), id: \.offset) { _, value in
                                             Capsule().fill(voiceCapture.isRecording ? Color(hex: 0x5799D9) : Color(hex: 0xA9C8E8).opacity(0.8))
-                                                .frame(width: 3, height: max(4, CGFloat(value) * 42))
+                                                .frame(width: 2, height: max(4, CGFloat(value) * 42))
                                         }
-                                    }.frame(maxWidth: .infinity).frame(height: 44)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .frame(height: 44)
+                                    .clipped()
                                     Text(voiceCapture.isRecording ? "正在捕捉声音" : voiceCapture.hasCapture ? "点击麦克风重新录制" : "点击麦克风开始说话")
                                         .font(.system(size: 10, weight: .medium)).foregroundStyle(Macaron.secondary)
                                 }.animation(.linear(duration: 0.045), value: voiceCapture.samples)
