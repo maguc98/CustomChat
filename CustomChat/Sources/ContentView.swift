@@ -936,6 +936,7 @@ private final class ChatModel: ObservableObject {
         let ownerID = personaID ?? mainAccountID
         let key = threadKey(for: contactID, personaID: personaID)
         let legacyKey = "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
+        let hadSharedThread = threadMessages[key] != nil
         var normalized: [ChatMessage]
 
         if let shared = threadMessages[key] {
@@ -977,10 +978,8 @@ private final class ChatModel: ObservableObject {
             }
             normalized[index].role = normalized[index].senderAccountID == ownerID ? .me : .other
         }
-        if threadMessages[key] != normalized {
-            threadMessages[key] = normalized
-            persistAllThreads()
-        }
+        threadMessages[key] = normalized
+        if !hadSharedThread { persistAllThreads() }
         return normalized
     }
 
