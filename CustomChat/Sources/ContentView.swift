@@ -1675,7 +1675,10 @@ struct ContentView: View {
                 }
             }
             .sheet(item: $previewPhoto) { photo in
-                PhotoPreviewView(data: photo.data)
+                MomentMediaPreviewSheet(data: photo.data, mediaType: "image")
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(28)
             }
             .confirmationDialog(
                 "删除“\(contactPendingDeletion?.name ?? "好友")”？",
