@@ -2963,8 +2963,13 @@ struct ContentView: View {
                                     senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
                                     if !model.isFriend(member.id) {
                                         Text("非好友")
-                                            .font(.system(size: 9, weight: .medium))
-                                            .foregroundStyle(Color(hex: 0xD18A55))
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(Color(hex: 0xC47D43))
+                                            .padding(.horizontal, 7)
+                                            .padding(.vertical, 4)
+                                            .background(Color(hex: 0xFFF1E5), in: Capsule())
+                                            .overlay(Capsule().stroke(Color(hex: 0xF3D8BE), lineWidth: 0.8))
+                                            .fixedSize()
                                     }
                                 }
                             }
