@@ -1371,6 +1371,9 @@ struct ContentView: View {
     private var basePresentation: some View {
         pageContent
             .buttonStyle(FluidPressButtonStyle())
+            .animation(ChatMotion.layout, value: themeOption)
+            .animation(ChatMotion.layout, value: backgroundOption)
+            .animation(ChatMotion.layout, value: fontOption)
             .preferredColorScheme(.light)
             .onAppear {
                 voiceCapture.onFailure = { showMicrophoneAlert = true }
@@ -1714,7 +1717,7 @@ struct ContentView: View {
                         ForEach(filteredContacts) { contact in
                             Button {
                                 model.selectContact(contact.id)
-                                withAnimation(.easeInOut(duration: 0.22)) { showConversation = true }
+                                withAnimation(ChatMotion.layout) { showConversation = true }
                             } label: {
                                 ChatListRow(
                                     name: contact.name,
@@ -1756,7 +1759,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.22)) { showConversation = false }
+                    withAnimation(ChatMotion.layout) { showConversation = false }
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 19, weight: .medium))
@@ -2047,7 +2050,7 @@ struct ContentView: View {
                                 Button {
                                     if voiceCapture.isRecording { voiceCapture.stop() }
                                     voiceCapture.transcript = ""
-                                    withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+                                    withAnimation(ChatMotion.layout) { isVoiceComposer = false }
                                 } label: { Text("取消").font(.system(size: 12, weight: .medium)).foregroundStyle(Macaron.secondary) }
                                 .buttonStyle(FluidPressButtonStyle())
                                 Spacer()
@@ -2076,7 +2079,7 @@ struct ContentView: View {
                                 .onSubmit(sendText)
                             Button {
                                 messageFocused = false
-                                withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = true }
+                                withAnimation(ChatMotion.layout) { isVoiceComposer = true }
                                 voiceCapture.start { showMicrophoneAlert = true }
                             } label: {
                                 Image(systemName: "waveform")
@@ -2105,6 +2108,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
+                .animation(ChatMotion.layout, value: isVoiceComposer)
             }
         }
         .padding(.horizontal, 15)
@@ -2178,6 +2182,8 @@ struct ContentView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
                     Text("¥\(model.walletBalance, specifier: "%.2f")")
+                        .contentTransition(.numericText())
+                        .animation(ChatMotion.text, value: model.walletBalance)
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundStyle(Macaron.ink)
                     HStack {
@@ -2186,6 +2192,8 @@ struct ContentView: View {
                             .foregroundStyle(Macaron.secondary)
                         Spacer()
                         Text("¥\(model.walletBalance(for: model.walletContactForCurrentChat), specifier: "%.2f")")
+                            .contentTransition(.numericText())
+                            .animation(ChatMotion.text, value: model.walletBalance(for: model.walletContactForCurrentChat))
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(Macaron.ink)
                         Button("修改") {
@@ -2282,6 +2290,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 15)
                     .padding(.bottom, 8)
+                    .transition(.chatCinematic)
                     }
                 }
                 .padding(.vertical, 4)
@@ -2367,6 +2376,7 @@ struct ContentView: View {
                                     }
                                     .padding(15)
                                     .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                    .transition(.chatCinematic)
                                     .contextMenu {
                                         Button("编辑动态", systemImage: "pencil") {
                                             editingMyMomentID = post.id
@@ -2381,6 +2391,7 @@ struct ContentView: View {
                                 }
                             }
                             .padding(18)
+                            .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
                         }
                         .background(Macaron.background)
                         .navigationTitle("我的朋友圈")
@@ -2535,8 +2546,11 @@ struct ContentView: View {
                                 if let data = item.post.mediaData { MomentMediaView(data: data, mediaType: item.post.mediaType) }
                                 Text(item.post.date, format: .dateTime.year().month().day().hour().minute()).font(.system(size: 10)).foregroundStyle(Macaron.secondary)
                             }
-                        }.padding(15).background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous)).padding(.horizontal, 16)
+                        }
+                        .padding(15).background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous)).padding(.horizontal, 16)
+                        .transition(.chatCinematic)
                     }
+                    .animation(ChatMotion.layout, value: feed.map { $0.id })
                 }
             }.padding(.bottom, 20)
         }
@@ -2819,7 +2833,7 @@ struct ContentView: View {
     private func sendVoiceMessage() {
         guard let captured = voiceCapture.consumeCapture() else { return }
         model.sendVoice(duration: captured.duration, waveform: captured.waveform, text: captured.transcript)
-        withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+        withAnimation(ChatMotion.layout) { isVoiceComposer = false }
         playMessageSound()
     }
 
