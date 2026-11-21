@@ -808,6 +808,8 @@ private final class ChatModel: ObservableObject {
             walletBalance = max(0, storedBalance)
         }
         persistContacts()
+        persistFriendships()
+        saveCalls()
         persistCurrentThread()
     }
 
