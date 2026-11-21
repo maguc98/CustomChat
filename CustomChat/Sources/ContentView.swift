@@ -27,6 +27,9 @@ final class VoiceCaptureManager: ObservableObject {
     @Published private(set) var isFinalizing = false
     @Published private(set) var hasCapture = false
     @Published private(set) var modelStatus = "首次使用将下载约 168 MB 中文模型"
+    @Published private(set) var isModelInstalled = false
+    @Published private(set) var isDownloadingModel = false
+    @Published private(set) var modelDownloadError: String?
     @Published var transcript = ""
 
     var onFailure: (() -> Void)?
@@ -77,6 +80,42 @@ final class VoiceCaptureManager: ObservableObject {
             minimumBytes: 5_000
         )
     ]
+
+    func refreshModelStatus() {
+        let fm = FileManager.default
+        isModelInstalled = Self.modelFiles.allSatisfy { item in
+            let url = Self.modelDirectory.appendingPathComponent(item.name)
+            let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+            return size >= item.minimumBytes
+        }
+        if isModelInstalled {
+            modelStatus = "中文离线模型已就绪"
+        } else if !isDownloadingModel {
+            modelStatus = "尚未下载中文模型"
+        }
+    }
+
+    func downloadModel() async {
+        guard !isDownloadingModel, !isRecording, !isPreparing else { return }
+        isDownloadingModel = true
+        modelDownloadError = nil
+        modelStatus = "正在准备下载中文模型…"
+        do {
+            _ = try await prepareLocalModel()
+            await MainActor.run {
+                self.isModelInstalled = true
+                self.isDownloadingModel = false
+                self.modelStatus = "中文离线模型已就绪"
+            }
+        } catch {
+            await MainActor.run {
+                self.isDownloadingModel = false
+                self.isModelInstalled = false
+                self.modelStatus = "模型下载失败"
+                self.modelDownloadError = error.localizedDescription
+            }
+        }
+    }
 
     func start(onDenied: @escaping () -> Void) {
         guard !isRecording, !isPreparing, !isFinalizing else { return }
@@ -2493,6 +2532,68 @@ struct ContentView: View {
                         ForEach(["偏小", "标准", "偏大"], id: \.self) { Text($0) }
                     }
                 }
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "waveform.badge.mic")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x5799D9))
+                                .frame(width: 38, height: 38)
+                                .background(Macaron.blue, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("中文离线语音模型")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Macaron.ink)
+                                Text(voiceCapture.isModelInstalled ? "已下载 · 可离线使用" : "约 168 MB · 首次下载需要网络")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Macaron.secondary)
+                            }
+                            Spacer()
+                            if voiceCapture.isModelInstalled {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(Color(hex: 0x69B99A))
+                                    .font(.system(size: 20))
+                            }
+                        }
+                        Text("用于聊天输入框的语音转文字。模型下载并保存在本机，识别过程在设备端完成。")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Macaron.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if voiceCapture.isDownloadingModel {
+                            ProgressView().tint(Color(hex: 0x5799D9))
+                            Text(voiceCapture.modelStatus)
+                                .font(.system(size: 11))
+                                .foregroundStyle(Macaron.secondary)
+                        } else {
+                            Button { Task { await voiceCapture.downloadModel() } } label: {
+                                HStack {
+                                    Image(systemName: voiceCapture.isModelInstalled ? "arrow.down.circle" : "arrow.down.to.line")
+                                    Text(voiceCapture.isModelInstalled ? "检查 / 重新下载模型" : "下载中文语音模型")
+                                    Spacer()
+                                    Text(voiceCapture.isModelInstalled ? "已就绪" : "约 168 MB")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(Macaron.secondary)
+                                }
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x4F91D2))
+                            }
+                            .disabled(voiceCapture.isRecording || voiceCapture.isPreparing)
+                        }
+                        if let error = voiceCapture.modelDownloadError {
+                            Text("下载失败：\(error)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color(hex: 0xC65C58))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("语音输入模型")
+                } footer: {
+                    Text("模型文件会保存在本机 App 数据目录。首次使用语音转文字前，请先完成下载。")
+                }
+                .onAppear { voiceCapture.refreshModelStatus() }
+
                 Section("消息提醒") {
                     Picker("消息提醒", selection: $soundOption) {
                         ForEach(["轻柔", "清脆", "关闭"], id: \.self) { Text($0) }
