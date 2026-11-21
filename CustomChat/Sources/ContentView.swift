@@ -2967,6 +2967,7 @@ struct ContentView: View {
                             .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
                     }
                     .buttonStyle(FluidPressButtonStyle())
+                    .fixedSize()
                     .accessibilityLabel("添加聊天内容")
                 }
 
@@ -2995,6 +2996,8 @@ struct ContentView: View {
                                 .font(.system(size: fontOption == "偏大" ? 16 : 15))
                                 .foregroundStyle(messageTextColor)
                                 .lineLimit(1...4)
+                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                                .layoutPriority(1)
                                 .padding(.vertical, 12)
                                 .focused($messageFocused)
                                 .onSubmit(sendText)
@@ -3023,15 +3026,18 @@ struct ContentView: View {
                         }
                         .padding(.leading, 17)
                         .padding(.trailing, 8)
-                        .frame(minHeight: 48)
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 48, alignment: .leading)
                         .background(Macaron.card, in: Capsule())
                         .overlay(Capsule().stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
                     }
                 }
-                .frame(maxWidth: .infinity)
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .layoutPriority(1)
                 .animation(ChatMotion.layout, value: isVoiceComposer)
             }
+            .frame(minWidth: 0, maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 15)
         .padding(.top, 6)
         .padding(.bottom, 8)
