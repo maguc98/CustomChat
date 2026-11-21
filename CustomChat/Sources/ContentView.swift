@@ -1560,7 +1560,7 @@ struct ContentView: View {
         )) { target in
             MomentCommentsSheet(
                 comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
-                authorOptions: ([model.activePersonaName] + model.contacts.filter { $0.isGroup != true }.map { $0.name }).reduce(into: [String]()) { result, name in
+                authorOptions: ([model.activePersonaName, model.identity.me] + model.contacts.filter { $0.isGroup != true }.map { $0.name }).reduce(into: [String]()) { result, name in
                     if !result.contains(name) { result.append(name) }
                 },
                 onSend: { comment in
@@ -2855,9 +2855,18 @@ struct ContentView: View {
     }
 
     private var momentsFeedItems: [MomentFeedItem] {
-        var items = model.contacts.first(where: { $0.id == model.activePersonaID })?.moments.map { MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0) } ?? model.myMoments.map { MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0) }
+        var items = model.activePersonaMoments.map {
+            MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0)
+        }
+        if model.activePersonaID != nil {
+            items.append(contentsOf: model.myMoments.map {
+                MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0)
+            })
+        }
         for contact in model.contacts where contact.isGroup != true && contact.id != model.activePersonaID {
-            items.append(contentsOf: contact.moments.map { MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0) })
+            items.append(contentsOf: contact.moments.map {
+                MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0)
+            })
         }
         return items.sorted { $0.post.date > $1.post.date }
     }
@@ -2974,6 +2983,9 @@ struct ContentView: View {
                             .foregroundStyle(Color(hex: 0x4F91D2))
                         Text(comment.text)
                             .foregroundStyle(messageTextColor)
+                        if let data = comment.mediaData {
+                            MomentMediaView(data: data, mediaType: comment.mediaType)
+                        }
                     }
                     .font(.system(size: 11))
                 }
