@@ -1404,6 +1404,22 @@ struct ContentView: View {
                 .zIndex(50)
             }
         }
+        .sheet(item: Binding(
+            get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
+            set: { activeMomentForComments = $0?.id }
+        )) { target in
+            MomentCommentsSheet(
+                comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
+                authorName: model.identity.me,
+                onSend: { comment in
+                    updateMoment(target.id) {
+                        var list = $0.comments ?? []
+                        list.append(comment)
+                        $0.comments = list
+                    }
+                }
+            )
+        }
     }
     var body: some View {
         preferenceDialogs
@@ -2314,21 +2330,6 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showAllMyMoments) { myMomentsAllSheet }
-        .sheet(item: Binding(
-            get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
-            set: { activeMomentForComments = $0?.id }
-        )) { target in
-            MomentCommentsSheet(
-                comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
-                onSend: { value in
-                    updateMoment(target.id) {
-                        var list = $0.comments ?? []
-                        list.append(MomentComment(author: model.identity.me, text: value))
-                        $0.comments = list
-                    }
-                }
-            )
-        }
         .sheet(isPresented: $showMyMomentEditor) { myMomentEditorSheet }
     }
 
@@ -4259,8 +4260,16 @@ private struct MomentCommentTarget: Identifiable { let id: UUID }
 private struct MomentCommentsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
-    let comments: [MomentComment]
-    let onSend: (String) -> Void
+    @State private var comments: [MomentComment]
+    let authorName: String
+    let onSend: (MomentComment) -> Void
+
+    init(comments: [MomentComment], authorName: String, onSend: @escaping (MomentComment) -> Void) {
+        _comments = State(initialValue: comments)
+        self.authorName = authorName
+        self.onSend = onSend
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -4288,7 +4297,10 @@ private struct MomentCommentsSheet: View {
                     Button {
                         let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !value.isEmpty else { return }
-                        onSend(value); draft = ""
+                        let comment = MomentComment(author: authorName, text: value)
+                        withAnimation(ChatMotion.layout) { comments.append(comment) }
+                        onSend(comment)
+                        draft = ""
                     } label: {
                         Image(systemName: "arrow.up.circle.fill").font(.system(size: 29)).foregroundStyle(Color(hex: 0x5D9FE2))
                     }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
