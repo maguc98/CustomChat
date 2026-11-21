@@ -1906,6 +1906,11 @@ struct ContentView: View {
     @State private var showThemePicker = false
     @State private var showFontPicker = false
     @State private var showSoundPicker = false
+    @State private var conversationAvailableWidth: CGFloat = 0
+
+    private var isCompactConversation: Bool {
+        conversationAvailableWidth > 0 && conversationAvailableWidth < 360
+    }
 
     private var activeAppearance: PersonaAppearance { model.activePersonaAppearance }
     private var appBackgroundColor: Color { Color(hex: activeAppearance.appBackgroundHex) }
@@ -2885,16 +2890,27 @@ struct ContentView: View {
             composer
                 .transition(.chatCinematic)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(appBackgroundColor)
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { conversationAvailableWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { _, newWidth in
+                        conversationAvailableWidth = newWidth
+                    }
+            }
+        }
+        .clipped()
         .padding(.bottom, messageFocused ? 8 : 0)
     }
 
     private func senderIdentityChip(name: String, selected: Bool, tint: Color) -> some View {
         Text(name)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: isCompactConversation ? 12 : 13, weight: .semibold))
             .foregroundStyle(messageTextColor)
-            .padding(.horizontal, 14)
-            .frame(height: 30)
+            .padding(.horizontal, isCompactConversation ? 10 : 14)
+            .frame(height: isCompactConversation ? 28 : 30)
             .background(selected ? tint.opacity(0.78) : Color(hex: 0xF0F1F5), in: Capsule())
     }
 
@@ -2907,9 +2923,9 @@ struct ContentView: View {
                 Spacer(minLength: 8)
                 Button { messageFocused = false } label: {
                     Image(systemName: "keyboard.chevron.compact.down")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: isCompactConversation ? 14 : 16, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
-                        .frame(width: 30, height: 30)
+                         .frame(width: isCompactConversation ? 26 : 30, height: isCompactConversation ? 26 : 30)
                         .background(Color(hex: 0xF0F1F5), in: Circle())
                 }
                 .accessibilityLabel("收起键盘")
@@ -2917,7 +2933,7 @@ struct ContentView: View {
                     NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
                 } label: {
                     Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: isCompactConversation ? 13 : 15, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
                         .frame(width: 30, height: 30)
                         .background(Color(hex: 0xF0F1F5), in: Circle())
@@ -2969,18 +2985,18 @@ struct ContentView: View {
                 .padding(.vertical, 2)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 35)
+            .frame(height: isCompactConversation ? 33 : 35)
 
-            HStack(spacing: 11) {
+            HStack(spacing: isCompactConversation ? 6 : 11) {
                 if !isVoiceComposer {
                     Button {
                         messageFocused = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showAddMenu = true }
                     } label: {
                         Image(systemName: "plus")
-                            .font(.system(size: 21, weight: .medium))
+                            .font(.system(size: isCompactConversation ? 18 : 21, weight: .medium))
                             .foregroundStyle(Color(hex: 0x5799D9))
-                            .frame(width: 46, height: 46)
+                            .frame(width: isCompactConversation ? 34 : 46, height: isCompactConversation ? 34 : 46)
                             .background(accentColor.opacity(0.68), in: Circle())
                             .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
                     }
@@ -3009,7 +3025,7 @@ struct ContentView: View {
                             onCancel: cancelVoiceComposer
                         )
                     } else {
-                        HStack(spacing: 8) {
+                        HStack(spacing: isCompactConversation ? 4 : 8) {
                             TextField("输入消息...", text: $draft, axis: .vertical)
                                 .font(.system(size: fontOption == "偏大" ? 16 : 15))
                                 .foregroundStyle(messageTextColor)
@@ -3027,7 +3043,7 @@ struct ContentView: View {
                                 Image(systemName: "waveform")
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundStyle(Color(hex: 0x5799D9))
-                                    .frame(width: 34, height: 34)
+                                    .frame(width: isCompactConversation ? 29 : 34, height: isCompactConversation ? 29 : 34)
                                     .background(Macaron.blue, in: Circle())
                             }
                             .buttonStyle(FluidPressButtonStyle())
@@ -3036,14 +3052,14 @@ struct ContentView: View {
                                 Image(systemName: "arrow.up")
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(.white)
-                                    .frame(width: 32, height: 32)
+                                    .frame(width: isCompactConversation ? 27 : 32, height: isCompactConversation ? 27 : 32)
                                     .background(accentColor.opacity(0.9), in: Circle())
                             }
                             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.38 : 1)
                         }
-                        .padding(.leading, 17)
-                        .padding(.trailing, 8)
+                        .padding(.leading, isCompactConversation ? 10 : 17)
+                        .padding(.trailing, isCompactConversation ? 4 : 8)
                         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 48, alignment: .leading)
                         .background(Macaron.card, in: Capsule())
                         .overlay(Capsule().stroke(Color(hex: 0xE5E8EF), lineWidth: 1))
@@ -3056,10 +3072,12 @@ struct ContentView: View {
             .frame(minWidth: 0, maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 15)
+        .padding(.horizontal, isCompactConversation ? 6 : 15)
         .padding(.top, 6)
         .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
         .background(Macaron.card)
+        .clipped()
         .onDisappear {
             if voiceCapture.isRecording { voiceCapture.stop() }
         }
