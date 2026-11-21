@@ -3957,6 +3957,7 @@ private struct PhotoPreviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex: Int
     @State private var zoomScale: CGFloat = 1
+    @State private var zoomStartScale: CGFloat = 1
     @State private var imageOffset: CGSize = .zero
     @State private var dragStartOffset: CGSize = .zero
     @State private var dragTranslation: CGFloat = 0
@@ -3987,12 +3988,19 @@ private struct PhotoPreviewView: View {
                             .simultaneousGesture(
                                 MagnificationGesture()
                                     .onChanged { value in
-                                        zoomScale = min(max(value, 1), 5)
-                                        if zoomScale <= 1.02 { imageOffset = .zero }
+                                        zoomScale = min(max(zoomStartScale * value, 1), 5)
+                                        if zoomScale <= 1.02 {
+                                            imageOffset = .zero
+                                            dragStartOffset = .zero
+                                        }
                                     }
                                     .onEnded { _ in
+                                        zoomStartScale = zoomScale
                                         if zoomScale <= 1.02 {
-                                            withAnimation(ChatMotion.layout) { imageOffset = .zero }
+                                            withAnimation(ChatMotion.layout) {
+                                                imageOffset = .zero
+                                                dragStartOffset = .zero
+                                            }
                                         }
                                     }
                             )
@@ -4024,14 +4032,18 @@ private struct PhotoPreviewView: View {
                                 withAnimation(ChatMotion.layout) {
                                     if zoomScale > 1.02 {
                                         zoomScale = 1
+                                        zoomStartScale = 1
                                         imageOffset = .zero
                                         dragStartOffset = .zero
                                     } else {
                                         zoomScale = 2.4
+                                        zoomStartScale = 2.4
                                     }
                                 }
                             }
                             .frame(width: geometry.size.width - 32, height: geometry.size.height - 32)
+                            // Clip after scaling/offset so the preview keeps fixed rounded corners.
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                             .padding(16)
                     } else {
                         ContentUnavailableView("无法显示图片", systemImage: "photo")
