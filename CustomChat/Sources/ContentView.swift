@@ -505,7 +505,7 @@ final class VoiceCaptureManager: ObservableObject {
     }
 }
 
-struct ChatMessage: Identifiable, Codable, Equatable {
+struct ChatMessage: Identifiable, Codable {
     var id: UUID
     var text: String
     var role: ChatRole
@@ -1837,13 +1837,13 @@ struct ContentView: View {
                                 )
                                 .id(message.id)
                                 .transition(.chatCinematic)
-                                .animation(ChatMotion.layout, value: message)
+                                // Individual message fields below drive their own lightweight transitions.
                             }
                         }
                     }
                     .padding(.horizontal, 13)
                     .padding(.bottom, 13)
-                    .animation(ChatMotion.layout, value: model.messages)
+                    .animation(ChatMotion.layout, value: model.messages.map { $0.id })
                     Color.clear
                         .frame(height: 1)
                         .id("chat-bottom-anchor")
