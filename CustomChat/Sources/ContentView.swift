@@ -3366,7 +3366,7 @@ private struct ChatListRow: View {
                     .contentTransition(.interpolate)
                     .animation(ChatMotion.text, value: name)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(messageTextColor)
+                    .foregroundStyle(Macaron.ink)
                 Text(preview.isEmpty ? " " : preview)
                     .contentTransition(.interpolate)
                     .animation(ChatMotion.text, value: preview)
@@ -3404,7 +3404,7 @@ private struct ProfileIdentityCard: View {
                 IdentityAvatar(data: avatarData, name: name, size: 66, tint: tint)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title).font(.system(size: 13)).foregroundStyle(Macaron.secondary)
-                    Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(messageTextColor)
+                    Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(Macaron.ink)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -3434,7 +3434,7 @@ private struct SettingsRow: View {
                     .frame(width: 28)
                 Text(title)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(messageTextColor)
+                    .foregroundStyle(Macaron.ink)
                 Spacer()
                 Text(value)
                     .font(.system(size: 13))
@@ -3459,7 +3459,7 @@ private struct SettingsLine: View {
     var body: some View {
         HStack(spacing: 13) {
             Image(systemName: symbol).foregroundStyle(tint).frame(width: 28)
-            Text(title).foregroundStyle(messageTextColor)
+            Text(title).foregroundStyle(Macaron.ink)
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .semibold))
@@ -3516,7 +3516,7 @@ private struct CallHistoryRow: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(name)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(messageTextColor)
+                        .foregroundStyle(Macaron.ink)
                     Text("\(record.isVideo ? "视频通话" : "语音通话") · \(durationText(record.duration))")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
@@ -3575,7 +3575,7 @@ private struct EmptyHint: View {
                 .foregroundStyle(Color(hex: 0x91B8DE))
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(messageTextColor)
+                .foregroundStyle(Macaron.ink)
             Text(subtitle)
                 .font(.system(size: 12))
                 .foregroundStyle(Macaron.secondary)
@@ -3689,7 +3689,7 @@ private struct MessageRow: View {
                         .font(.system(size: 12))
                         .opacity(0.75)
                 }
-                .foregroundStyle(messageTextColor)
+                .foregroundStyle(Macaron.ink)
             }
             .padding(12)
             .frame(width: 225, alignment: .leading)
@@ -3707,13 +3707,13 @@ private struct MessageRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("已收款")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(messageTextColor)
+                        .foregroundStyle(Macaron.ink)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")")
                         .contentTransition(.numericText())
                         .animation(ChatMotion.text, value: message.amount ?? 0)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(messageTextColor)
+                        .foregroundStyle(Macaron.ink)
                     Text(message.note.isEmpty ? "转账" : message.note)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
@@ -3751,7 +3751,7 @@ private struct MessageRow: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
-                }.foregroundStyle(messageTextColor)
+                }.foregroundStyle(Macaron.ink)
             }
             .padding(12).frame(width: 225, alignment: .leading)
             .background(Color(hex: 0xFCE7E2), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -3774,7 +3774,7 @@ private struct MessageRow: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
-                }.foregroundStyle(messageTextColor)
+                }.foregroundStyle(Macaron.ink)
             }
             .padding(12).frame(width: 225, alignment: .leading)
             .background(Color(hex: 0xFFF1D9), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -3819,7 +3819,7 @@ private struct AddContentMenu: View {
                 HStack {
                     Text("添加内容")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(messageTextColor)
+                        .foregroundStyle(Macaron.ink)
                     Spacer()
                     Button("取消", action: onDismiss)
                         .font(.system(size: 14, weight: .medium))
@@ -3858,12 +3858,12 @@ private struct AddContentMenuItem: View {
             VStack(spacing: 9) {
                 Image(systemName: symbol)
                     .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(messageTextColor)
+                    .foregroundStyle(Macaron.ink)
                     .frame(width: 54, height: 54)
                     .background(tint, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(messageTextColor)
+                    .foregroundStyle(Macaron.ink)
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
