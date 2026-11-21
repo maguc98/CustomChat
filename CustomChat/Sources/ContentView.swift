@@ -1366,7 +1366,9 @@ struct ContentView: View {
         )) { target in
             MomentCommentsSheet(
                 comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
-                authorName: model.identity.me,
+                authorOptions: ([model.identity.me] + model.contacts.map { $0.name }).reduce(into: [String]()) { result, name in
+                    if !result.contains(name) { result.append(name) }
+                },
                 onSend: { comment in
                     updateMoment(target.id) {
                         var list = $0.comments ?? []
@@ -4326,12 +4328,14 @@ private struct MomentCommentsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
     @State private var comments: [MomentComment]
-    let authorName: String
+    @State private var selectedAuthor: String
+    let authorOptions: [String]
     let onSend: (MomentComment) -> Void
 
-    init(comments: [MomentComment], authorName: String, onSend: @escaping (MomentComment) -> Void) {
+    init(comments: [MomentComment], authorOptions: [String], onSend: @escaping (MomentComment) -> Void) {
         _comments = State(initialValue: comments)
-        self.authorName = authorName
+        self.authorOptions = authorOptions.isEmpty ? ["我"] : authorOptions
+        _selectedAuthor = State(initialValue: authorOptions.first ?? "我")
         self.onSend = onSend
     }
 
@@ -4355,21 +4359,55 @@ private struct MomentCommentsSheet: View {
                         }
                     }.padding(16)
                 }
-                HStack(spacing: 9) {
-                    TextField("写下你的评论…", text: $draft, axis: .vertical)
-                        .lineLimit(1...4).padding(11)
-                        .background(Macaron.card, in: Capsule())
-                    Button {
+                VStack(spacing: 9) {
+                    HStack {
+                        Text("评论身份")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Macaron.secondary)
+                        Menu {
+                            ForEach(authorOptions, id: \.self) { name in
+                                Button {
+                                    withAnimation(ChatMotion.layout) { selectedAuthor = name }
+                                } label: {
+                                    if selectedAuthor == name {
+                                        Label(name, systemImage: "checkmark")
+                                    } else {
+                                        Text(name)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(selectedAuthor)
+                                    .font(.system(size: 12, weight: .semibold))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 9, weight: .bold))
+                            }
+                            .foregroundStyle(Color(hex: 0x4F91D2))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(hex: 0xE8F3FF), in: Capsule())
+                        }
+                        Spacer()
+                    }
+                    HStack(spacing: 9) {
+                        TextField("写下你的评论…", text: $draft, axis: .vertical)
+                            .lineLimit(1...4).padding(11)
+                            .background(Macaron.card, in: Capsule())
+                        Button {
                         let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !value.isEmpty else { return }
-                        let comment = MomentComment(author: authorName, text: value)
+                        let comment = MomentComment(author: selectedAuthor, text: value)
                         withAnimation(ChatMotion.layout) { comments.append(comment) }
                         onSend(comment)
                         draft = ""
                     } label: {
                         Image(systemName: "arrow.up.circle.fill").font(.system(size: 29)).foregroundStyle(Color(hex: 0x5D9FE2))
-                    }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }.padding(12).background(Macaron.background)
+                        }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .padding(12)
+                .background(Macaron.background)
             }
             .background(Macaron.background)
             .navigationTitle("评论").navigationBarTitleDisplayMode(.inline)
