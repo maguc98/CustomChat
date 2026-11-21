@@ -5052,6 +5052,66 @@ private struct MomentFeedItem: Identifiable {
     var id: UUID { post.id }
 }
 
+private struct PersonaSwitcherSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let currentPersonaID: UUID?
+    let ownName: String
+    let ownAvatar: Data?
+    let contacts: [ChatContact]
+    let onSelect: (UUID?) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 10) {
+                    personaRow(name: ownName, avatar: ownAvatar, subtitle: "自己的账号", isSelected: currentPersonaID == nil) {
+                        onSelect(nil)
+                        dismiss()
+                    }
+                    ForEach(contacts) { contact in
+                        personaRow(name: contact.name, avatar: contact.avatarData, subtitle: "好友账号 · 独立资料与外观", isSelected: currentPersonaID == contact.id) {
+                            onSelect(contact.id)
+                            dismiss()
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .background(Macaron.background)
+            .navigationTitle("切换账号")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+
+    private func personaRow(name: String, avatar: Data?, subtitle: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                IdentityAvatar(data: avatar, name: name, size: 48, tint: Macaron.blue)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color(hex: 0x65B99A))
+                }
+            }
+            .padding(13)
+            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(FluidPressButtonStyle())
+    }
+}
+
 private struct CreateGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var groupName = ""
