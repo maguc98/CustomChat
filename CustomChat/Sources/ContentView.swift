@@ -594,12 +594,17 @@ struct MomentComment: Identifiable, Codable {
     var text: String
     var date: Date
     var replyToAuthor: String?
-    init(author: String, text: String, replyToAuthor: String? = nil) {
+    var mediaData: Data?
+    var mediaType: String?
+
+    init(author: String, text: String, replyToAuthor: String? = nil, mediaData: Data? = nil, mediaType: String? = nil) {
         id = UUID()
         self.author = author
         self.text = text
         self.date = .now
         self.replyToAuthor = replyToAuthor
+        self.mediaData = mediaData
+        self.mediaType = mediaType
     }
 }
 
@@ -1549,6 +1554,18 @@ struct ContentView: View {
                         var list = $0.comments ?? []
                         list.append(comment)
                         $0.comments = list
+                    }
+                },
+                onUpdate: { comment in
+                    updateMoment(target.id) {
+                        var list = $0.comments ?? []
+                        if let index = list.firstIndex(where: { $0.id == comment.id }) { list[index] = comment }
+                        $0.comments = list
+                    }
+                },
+                onDelete: { commentID in
+                    updateMoment(target.id) {
+                        $0.comments = ($0.comments ?? []).filter { $0.id != commentID }
                     }
                 }
             )
@@ -4572,204 +4589,385 @@ private struct MomentMediaView: View {
 
 private struct MomentCommentTarget: Identifiable { let id: UUID }
 
+private struct MomentMediaPreviewItem: Identifiable {
+    let id = UUID()
+    let data: Data
+    let mediaType: String?
+}
+
 private struct MomentCommentsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ""
     @State private var comments: [MomentComment]
     @State private var selectedAuthor: String
     @State private var replyingTo: MomentComment?
+    @State private var editingCommentID: UUID?
+    @State private var draftMediaData: Data?
+    @State private var draftMediaType: String?
+    @State private var mediaSelection: PhotosPickerItem?
+    @State private var previewMedia: MomentMediaPreviewItem?
     let authorOptions: [String]
     let onSend: (MomentComment) -> Void
+    let onUpdate: (MomentComment) -> Void
+    let onDelete: (UUID) -> Void
 
-    init(comments: [MomentComment], authorOptions: [String], onSend: @escaping (MomentComment) -> Void) {
+    init(
+        comments: [MomentComment],
+        authorOptions: [String],
+        onSend: @escaping (MomentComment) -> Void,
+        onUpdate: @escaping (MomentComment) -> Void,
+        onDelete: @escaping (UUID) -> Void
+    ) {
         _comments = State(initialValue: comments)
         self.authorOptions = authorOptions.isEmpty ? ["我"] : authorOptions
         _selectedAuthor = State(initialValue: authorOptions.first ?? "我")
         self.onSend = onSend
+        self.onUpdate = onUpdate
+        self.onDelete = onDelete
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if comments.isEmpty {
-                            EmptyHint(symbol: "bubble.left", title: "还没有评论", subtitle: "来发表第一条评论吧。").padding(.top, 55)
-                        } else {
-                            ForEach(comments) { comment in
-                                VStack(alignment: .leading, spacing: 7) {
-                                    HStack(spacing: 5) {
-                                        Text(comment.author)
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(Color(hex: 0x4F91D2))
-                                        if let target = comment.replyToAuthor, !target.isEmpty {
-                                            Text("回复")
-                                                .font(.system(size: 10))
-                                                .foregroundStyle(Macaron.secondary)
-                                            Text(target)
-                                                .font(.system(size: 12, weight: .semibold))
-                                                .foregroundStyle(Color(hex: 0x4F91D2))
-                                        }
-                                        Spacer()
-                                        Button {
-                                            withAnimation(ChatMotion.layout) {
-                                                replyingTo = comment
-                                            }
-                                        } label: {
-                                            Label("回复", systemImage: "arrowshape.turn.up.left")
-                                                .font(.system(size: 10, weight: .medium))
-                                                .foregroundStyle(Color(hex: 0x4F91D2))
-                                        }
-                                    }
-                                    Text(comment.text)
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(Macaron.ink)
-                                }
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 14))
-                                .transition(.chatCinematic)
-                            }
-                        }
-                    }.padding(16)
-                }
-                VStack(spacing: 9) {
-                    HStack {
-                        Text("评论身份")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Macaron.secondary)
-                        Menu {
-                            ForEach(authorOptions, id: \.self) { name in
-                                Button {
-                                    withAnimation(ChatMotion.layout) { selectedAuthor = name }
-                                } label: {
-                                    if selectedAuthor == name {
-                                        Label(name, systemImage: "checkmark")
-                                    } else {
-                                        Text(name)
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text(selectedAuthor)
-                                    .font(.system(size: 12, weight: .semibold))
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 9, weight: .bold))
-                            }
-                            .foregroundStyle(Color(hex: 0x4F91D2))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(hex: 0xE8F3FF), in: Capsule())
-                        }
-                        Spacer()
-                    }
-                    if let target = replyingTo {
-                        HStack(spacing: 6) {
-                            Text("正在回复")
-                                .foregroundStyle(Macaron.secondary)
-                            Text(target.author)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(Color(hex: 0x4F91D2))
-                            Spacer()
-                            Button {
-                                withAnimation(ChatMotion.layout) { replyingTo = nil }
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(Macaron.secondary)
-                            }
-                        }
-                        .font(.system(size: 11))
-                    }
-                    HStack(spacing: 9) {
-                        TextField(replyingTo.map { "回复 \($0.author)…" } ?? "写下你的评论…", text: $draft, axis: .vertical)
-                            .lineLimit(1...4)
-                            .padding(11)
-                            .background(Macaron.card, in: Capsule())
-                        Button {
-                            let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !value.isEmpty else { return }
-                            let comment = MomentComment(
-                                author: selectedAuthor,
-                                text: value,
-                                replyToAuthor: replyingTo?.author
-                            )
-                            withAnimation(ChatMotion.layout) { comments.append(comment) }
-                            onSend(comment)
-                            draft = ""
-                            replyingTo = nil
-                        } label: {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 29))
-                                .foregroundStyle(Color(hex: 0x5D9FE2))
-                        }
-                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-                .padding(12)
-                .background(Macaron.background)
+                commentsList
+                composer
             }
             .background(Macaron.background)
-            .navigationTitle("评论").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
-        }
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-    }
-}
-
-private struct PersonaSwitcherSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let currentPersonaID: UUID?
-    let ownName: String
-    let ownAvatar: Data?
-    let contacts: [ChatContact]
-    let onSelect: (UUID?) -> Void
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 10) {
-                    personaRow(name: ownName, avatar: ownAvatar, subtitle: "自己的账号", isSelected: currentPersonaID == nil) {
-                        onSelect(nil)
-                        dismiss()
-                    }
-                    ForEach(contacts) { contact in
-                        personaRow(name: contact.name, avatar: contact.avatarData, subtitle: "好友账号 · 独立资料与外观", isSelected: currentPersonaID == contact.id) {
-                            onSelect(contact.id)
-                            dismiss()
-                        }
-                    }
-                }
-                .padding(16)
-            }
-            .background(Macaron.background)
-            .navigationTitle("切换账号")
+            .navigationTitle("评论")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .sheet(item: $previewMedia) { item in
+            MomentMediaPreviewSheet(data: item.data, mediaType: item.mediaType)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
+        .onChange(of: mediaSelection) { _, item in
+            guard let item else { return }
+            Task {
+                let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await MainActor.run {
+                        draftMediaData = data
+                        draftMediaType = isVideo ? "video" : "image"
+                    }
+                }
+                await MainActor.run { mediaSelection = nil }
+            }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(28)
     }
 
-    private func personaRow(name: String, avatar: Data?, subtitle: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                IdentityAvatar(data: avatar, name: name, size: 48, tint: Macaron.blue)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Macaron.ink)
-                    Text(subtitle).font(.system(size: 11)).foregroundStyle(Macaron.secondary)
-                }
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(Color(hex: 0x65B99A))
+    private var commentsList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                if comments.isEmpty {
+                    EmptyHint(symbol: "bubble.left", title: "还没有评论", subtitle: "来发表第一条评论吧。")
+                        .padding(.top, 55)
+                } else {
+                    ForEach(comments) { comment in
+                        commentRow(comment)
+                    }
                 }
             }
-            .padding(13)
-            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(16)
         }
-        .buttonStyle(FluidPressButtonStyle())
+    }
+
+    private func commentRow(_ comment: MomentComment) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                Text(comment.author)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+                if let target = comment.replyToAuthor, !target.isEmpty {
+                    Text("回复").font(.system(size: 10)).foregroundStyle(Macaron.secondary)
+                    Text(target).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
+                }
+                Spacer()
+                Button {
+                    withAnimation(ChatMotion.layout) {
+                        replyingTo = comment
+                        editingCommentID = nil
+                        draft = ""
+                        draftMediaData = nil
+                        draftMediaType = nil
+                    }
+                } label: {
+                    Label("回复", systemImage: "arrowshape.turn.up.left")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                }
+            }
+            if !comment.text.isEmpty {
+                Text(comment.text)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Macaron.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let data = comment.mediaData {
+                Button {
+                    previewMedia = MomentMediaPreviewItem(data: data, mediaType: comment.mediaType)
+                } label: {
+                    MomentCommentThumbnail(data: data, mediaType: comment.mediaType)
+                }
+                .buttonStyle(FluidPressButtonStyle())
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contextMenu {
+            if comment.author == selectedAuthor {
+                Button("编辑评论", systemImage: "pencil") {
+                    beginEditing(comment)
+                }
+                Button("删除评论", systemImage: "trash", role: .destructive) {
+                    withAnimation(ChatMotion.layout) { comments.removeAll { $0.id == comment.id } }
+                    onDelete(comment.id)
+                }
+            }
+            Button("回复评论", systemImage: "arrowshape.turn.up.left") {
+                replyingTo = comment
+                editingCommentID = nil
+                draft = ""
+                draftMediaData = nil
+                draftMediaType = nil
+            }
+        }
+        .transition(.chatCinematic)
+    }
+
+    private var composer: some View {
+        VStack(spacing: 9) {
+            if let target = replyingTo {
+                HStack(spacing: 6) {
+                    Text("正在回复").foregroundStyle(Macaron.secondary)
+                    Text(target.author).fontWeight(.semibold).foregroundStyle(Color(hex: 0x4F91D2))
+                    Spacer()
+                    Button {
+                        withAnimation(ChatMotion.layout) { replyingTo = nil }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Macaron.secondary)
+                    }
+                }
+                .font(.system(size: 11))
+            } else if editingCommentID != nil {
+                HStack {
+                    Text("正在编辑评论")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                    Spacer()
+                    Button("取消编辑") { cancelEditing() }
+                        .font(.system(size: 11))
+                        .foregroundStyle(Macaron.secondary)
+                }
+            }
+
+            HStack {
+                Text("评论身份")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Macaron.secondary)
+                Menu {
+                    ForEach(authorOptions, id: \.self) { name in
+                        Button {
+                            withAnimation(ChatMotion.layout) { selectedAuthor = name }
+                        } label: {
+                            if selectedAuthor == name { Label(name, systemImage: "checkmark") }
+                            else { Text(name) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(selectedAuthor).font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(hex: 0xE8F3FF), in: Capsule())
+                }
+                Spacer()
+            }
+
+            if let data = draftMediaData {
+                HStack(spacing: 9) {
+                    MomentCommentThumbnail(data: data, mediaType: draftMediaType)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(draftMediaType == "video" ? "已添加视频" : "已添加图片")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        Button("移除附件") {
+                            draftMediaData = nil
+                            draftMediaType = nil
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(hex: 0xC86E82))
+                    }
+                    Spacer()
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField(editingCommentID == nil ? (replyingTo.map { "回复 \($0.author)…" } ?? "写下你的评论…") : "编辑评论内容…", text: $draft, axis: .vertical)
+                    .lineLimit(1...4)
+                    .padding(11)
+                    .background(Macaron.card, in: Capsule())
+
+                PhotosPicker(selection: $mediaSelection, matching: .any(of: [.images, .videos])) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                        .frame(width: 40, height: 40)
+                        .background(Color(hex: 0xE8F3FF), in: Circle())
+                }
+                .accessibilityLabel("添加图片或视频")
+
+                Button(action: submitComment) {
+                    Image(systemName: editingCommentID == nil ? "arrow.up.circle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 29))
+                        .foregroundStyle(Color(hex: 0x5D9FE2))
+                }
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draftMediaData == nil)
+            }
+        }
+        .padding(12)
+        .background(Macaron.background)
+    }
+
+    private func beginEditing(_ comment: MomentComment) {
+        withAnimation(ChatMotion.layout) {
+            editingCommentID = comment.id
+            replyingTo = nil
+            selectedAuthor = comment.author
+            draft = comment.text
+            draftMediaData = comment.mediaData
+            draftMediaType = comment.mediaType
+        }
+    }
+
+    private func cancelEditing() {
+        withAnimation(ChatMotion.layout) {
+            editingCommentID = nil
+            replyingTo = nil
+            draft = ""
+            draftMediaData = nil
+            draftMediaType = nil
+        }
+    }
+
+    private func submitComment() {
+        let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty || draftMediaData != nil else { return }
+
+        if let editingCommentID, let index = comments.firstIndex(where: { $0.id == editingCommentID }) {
+            var updated = comments[index]
+            updated.text = value
+            updated.mediaData = draftMediaData
+            updated.mediaType = draftMediaType
+            withAnimation(ChatMotion.layout) { comments[index] = updated }
+            onUpdate(updated)
+        } else {
+            let comment = MomentComment(
+                author: selectedAuthor,
+                text: value,
+                replyToAuthor: replyingTo?.author,
+                mediaData: draftMediaData,
+                mediaType: draftMediaType
+            )
+            withAnimation(ChatMotion.layout) { comments.append(comment) }
+            onSend(comment)
+        }
+        cancelEditing()
+    }
+}
+
+private struct MomentCommentThumbnail: View {
+    let data: Data
+    let mediaType: String?
+
+    var body: some View {
+        Group {
+            if mediaType == "video" {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color(hex: 0xDCEAF7))
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                    Text("视频")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                        .offset(y: 21)
+                }
+            } else if let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Macaron.blue)
+            }
+        }
+        .frame(width: 88, height: 76)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white, lineWidth: 1))
+    }
+}
+
+private struct MomentMediaPreviewSheet: View {
+    let data: Data
+    let mediaType: String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Macaron.background.ignoresSafeArea()
+                Group {
+                    if mediaType == "video" {
+                        if let player {
+                            VideoPlayer(player: player)
+                                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        } else {
+                            ProgressView().tint(Color(hex: 0x5799D9))
+                        }
+                    } else if let image = UIImage(data: data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle(mediaType == "video" ? "视频预览" : "图片预览")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .onAppear {
+                guard mediaType == "video" else { return }
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("comment-preview-\(UUID().uuidString).mov")
+                do {
+                    try data.write(to: url, options: .atomic)
+                    let next = AVPlayer(url: url)
+                    next.play()
+                    player = next
+                } catch {
+                    NSLog("CustomChat comment video preview error: %@", error.localizedDescription)
+                }
+            }
+            .onDisappear { player?.pause(); player = nil }
+        }
     }
 }
 
