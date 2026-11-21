@@ -3626,6 +3626,7 @@ private struct SimulatedCallView: View {
     let name: String
     let meName: String
     let avatarData: Data?
+    let meAvatarData: Data?
     @ObservedObject var call: SimulatedCall
     let onMinimize: () -> Void
     let onEnd: (Int) -> Void
@@ -3704,27 +3705,7 @@ private struct SimulatedCallView: View {
                         .aspectRatio(1, contentMode: .fit)
                         .frame(maxHeight: 390)
                         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                        .overlay(alignment: .topTrailing) {
-                            PhotosPicker(selection: $call.selectedMedia, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
-                                Image(systemName: "photo.badge.plus")
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(11)
-                                    .background(.black.opacity(0.4), in: Circle())
-                            }
-                            .padding(12)
-                        }
-                        .overlay(alignment: .bottomTrailing) {
-                            VStack(spacing: 6) {
-                                IdentityAvatar(data: nil, name: meName, size: 44, tint: Macaron.blue)
-                                Text("我")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(Macaron.ink)
-                            }
-                            .padding(12)
-                            .background(.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 18))
-                            .padding(14)
-                        }
+
                     }
                     .padding(.horizontal, 18)
                 } else {
@@ -3766,15 +3747,50 @@ private struct SimulatedCallView: View {
                 }
                 .padding(.bottom, 28)
 
-                Button(action: endCall) {
-                    Image(systemName: "phone.down.fill")
-                        .font(.system(size: 23, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 68, height: 68)
-                        .background(Color(hex: 0xE8788D), in: Circle())
+                if call.isVideo {
+                    HStack(spacing: 24) {
+                        VStack(spacing: 6) {
+                            IdentityAvatar(data: meAvatarData, name: meName, size: 46, tint: Macaron.blue)
+                            Text("我")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Macaron.ink)
+                        }
+                        .frame(width: 76, height: 88)
+                        .background(.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white, lineWidth: 1))
+                        .shadow(color: Color(hex: 0x9EB5CE).opacity(0.10), radius: 8, x: 0, y: 3)
+
+                        Button(action: endCall) {
+                            Image(systemName: "phone.down.fill")
+                                .font(.system(size: 23, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 68, height: 68)
+                                .background(Color(hex: 0xE8788D), in: Circle())
+                        }
+                        .accessibilityLabel("结束通话")
+
+                        PhotosPicker(selection: $call.selectedMedia, matching: .any(of: [.images, .videos]), photoLibrary: .shared()) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 66, height: 66)
+                                .background(Color(hex: 0x8793A2), in: Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                        }
+                        .accessibilityLabel("添加图片或视频")
+                    }
+                    .padding(.bottom, 35)
+                } else {
+                    Button(action: endCall) {
+                        Image(systemName: "phone.down.fill")
+                            .font(.system(size: 23, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 68, height: 68)
+                            .background(Color(hex: 0xE8788D), in: Circle())
+                    }
+                    .accessibilityLabel("结束通话")
+                    .padding(.bottom, 35)
                 }
-                .accessibilityLabel("结束通话")
-                .padding(.bottom, 35)
             }
         }
         .onChange(of: call.selectedMedia) { _, item in
