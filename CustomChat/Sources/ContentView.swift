@@ -5967,14 +5967,10 @@ private struct SwipeRevealRow<Content: View, Actions: View>: View {
                             let horizontal = value.translation.width
                             withAnimation(ChatMotion.layout) {
                                 if horizontal > 42 { revealWidth = 160 }
-                                else if horizontal < -35 { revealWidth = 0 }
-                                else if abs(horizontal) < 12 && revealWidth > 0 { revealWidth = 0 }
+                                else if horizontal < -35 || revealWidth > 0 { revealWidth = 0 }
                             }
                         }
                 )
-                .onTapGesture {
-                    if revealWidth > 0 { withAnimation(ChatMotion.layout) { revealWidth = 0 } }
-                }
         }
         .clipped()
         .animation(ChatMotion.layout, value: revealWidth)
