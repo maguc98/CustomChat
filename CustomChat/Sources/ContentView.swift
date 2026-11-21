@@ -2977,6 +2977,13 @@ struct ContentView: View {
                         )
                 }
             }
+            .background(
+                Color.white,
+                in: UnevenRoundedRectangle(
+                    cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
+                    style: .continuous
+                )
+            )
             .clipShape(
                 UnevenRoundedRectangle(
                     cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
