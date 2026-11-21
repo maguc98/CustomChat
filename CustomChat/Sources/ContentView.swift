@@ -2162,6 +2162,11 @@ struct ContentView: View {
                         showSoundPicker = true
                     }
                     Divider().overlay(Macaron.line).padding(.leading, 54)
+                    SettingsRow(symbol: "waveform.badge.mic", title: "语音模型下载", value: voiceCapture.isModelInstalled ? "已就绪" : "未下载", tint: Color(hex: 0x83B9EF)) {
+                        voiceCapture.refreshModelStatus()
+                        showChatSettings = true
+                    }
+                    Divider().overlay(Macaron.line).padding(.leading, 54)
                     Button { showClearConfirmation = true } label: {
                         SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
                     }
@@ -3023,24 +3028,34 @@ private struct MessageRow: View {
             .frame(width: 225, alignment: .leading)
             .background(Color(hex: 0xE7F0FC), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         } else if message.kind == .paymentReceipt {
-            HStack(spacing: 12) {
+            HStack(spacing: 11) {
                 ZStack {
-                    Circle().stroke(Color.white.opacity(0.95), lineWidth: 3).frame(width: 42, height: 42)
-                    Image(systemName: "checkmark").font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(Color(hex: 0xE7A65B))
+                        .frame(width: 45, height: 45)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
                 }
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("已收款")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")")
-                        .font(.system(size: 24, weight: .medium, design: .rounded)).monospacedDigit()
-                    Text("已收款").font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Macaron.ink)
                     Text(message.note.isEmpty ? "转账" : message.note)
-                        .font(.system(size: 12, weight: .medium)).padding(.top, 7)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                        .padding(.top, 1)
                 }
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16).padding(.vertical, 15)
+            .padding(12)
             .frame(width: 225, alignment: .leading)
-            .background(Color(hex: 0xF9C58F), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color(hex: 0xFFF1D9), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white, lineWidth: 1))
         } else if message.kind == .redPacket {
             HStack(spacing: 11) {
                 Image(systemName: "gift.fill").font(.system(size: 25)).foregroundStyle(.white)
