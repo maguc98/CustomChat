@@ -2771,7 +2771,7 @@ struct ContentView: View {
 
     private var conversationView: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button {
                     messageFocused = false
                     withAnimation(ChatMotion.layout) { showConversation = false }
@@ -2779,61 +2779,88 @@ struct ContentView: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(messageTextColor)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 40, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .zIndex(2)
+                .accessibilityLabel("返回聊天列表")
+
                 Button {
-                    if model.currentContact?.isGroup == true { showCreateGroup = true } else { showFriendProfile = true }
+                    if model.currentContact?.isGroup == true {
+                        showCreateGroup = true
+                    } else {
+                        showFriendProfile = true
+                    }
                 } label: {
-                    IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink)
+                    IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 40, tint: Macaron.pink)
                         .contentShape(Circle())
+                        .frame(width: 42, height: 44)
                 }
                 .buttonStyle(.plain)
-                .zIndex(1)
-                VStack(alignment: .leading, spacing: 4) {
+                .accessibilityLabel("查看联系人资料")
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text(model.currentContact?.name ?? model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(messageTextColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     HStack(spacing: 5) {
-                        Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
-                            .fixedSize()
-                        Text(model.currentContact?.isGroup == true ? "群聊 · \\(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天")
-                            .font(.system(size: 12, weight: .medium))
+                        Circle()
+                            .fill(Color(hex: 0x58C994))
+                            .frame(width: 7, height: 7)
+                        Text(model.currentContact?.isGroup == true
+                             ? "群聊 · \\(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天"
+                             : "本地聊天")
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Macaron.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .minimumScaleFactor(0.72)
                     }
-                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(0)
-                Spacer(minLength: 2)
-                Button { beginCall(video: false) } label: {
-                    Image(systemName: "phone").font(.system(size: 18)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+
+                HStack(spacing: 3) {
+                    Button { beginCall(video: false) } label: {
+                        Image(systemName: "phone")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(messageTextColor)
+                            .frame(width: 36, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("语音通话")
+
+                    Button { beginCall(video: true) } label: {
+                        Image(systemName: "video")
+                            .font(.system(size: 19, weight: .medium))
+                            .foregroundStyle(messageTextColor)
+                            .frame(width: 36, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("视频通话")
+
+                    Button {
+                        showContactActions = true
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(messageTextColor)
+                            .frame(width: 36, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("联系人操作")
                 }
-                .fixedSize()
-                .accessibilityLabel("语音通话")
-                Button { beginCall(video: true) } label: {
-                    Image(systemName: "video").font(.system(size: 19)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
-                }
-                .fixedSize()
-                .accessibilityLabel("视频通话")
-                Button {
-                    showContactActions = true
-                } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 19, weight: .semibold)).foregroundStyle(messageTextColor).frame(width: 26, height: 40)
-                }
-                .fixedSize()
-                .accessibilityLabel("联系人操作")
+                .fixedSize(horizontal: true, vertical: false)
             }
-            .frame(minWidth: 0, maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 54, maxHeight: 54)
             .padding(.horizontal, 8)
-            .padding(.top, 7)
-            .padding(.bottom, 7)
-            .background(Macaron.card)
+            .background {
+                Color.white.ignoresSafeArea(edges: .top)
+            }
             .confirmationDialog(
                 model.currentContact?.isGroup == true ? "群聊操作" : "联系人操作",
                 isPresented: $showContactActions,
