@@ -7,16 +7,67 @@ import UniformTypeIdentifiers
 import AudioToolbox
 import SherpaOnnx
 
+
+private enum ChatMotion {
+    static let press = Animation.spring(response: 0.30, dampingFraction: 0.62, blendDuration: 0.08)
+    static let layout = Animation.spring(response: 0.46, dampingFraction: 0.84, blendDuration: 0.10)
+    static let text = Animation.easeInOut(duration: 0.24)
+    static var cinematic: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: ChatRevealModifier(progress: 0), identity: ChatRevealModifier(progress: 1)),
+            removal: .modifier(active: ChatExitModifier(progress: 0), identity: ChatExitModifier(progress: 1))
+        )
+    }
+}
+private struct ChatRevealModifier: AnimatableModifier {
+    var progress: CGFloat
+    var animatableData: CGFloat { get { progress } set { progress = newValue } }
+    func body(content: Content) -> some View {
+        content.opacity(Double(progress))
+            .scaleEffect(0.94 + 0.06 * progress, anchor: .bottom)
+            .blur(radius: (1 - progress) * 8)
+            .offset(y: (1 - progress) * 16)
+    }
+}
+private struct ChatExitModifier: AnimatableModifier {
+    var progress: CGFloat
+    var animatableData: CGFloat { get { progress } set { progress = newValue } }
+    func body(content: Content) -> some View {
+        content.opacity(Double(progress))
+            .scaleEffect(0.97 + 0.03 * progress, anchor: .center)
+            .blur(radius: (1 - progress) * 6)
+            .offset(y: (1 - progress) * -9)
+    }
+}
+private struct FluidPressButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.965 : 1)
+            .rotation3DEffect(.degrees(configuration.isPressed && !reduceMotion ? -1.1 : 0),
+                              axis: (x: 1, y: 0, z: 0), perspective: 0.72)
+            .saturation(configuration.isPressed ? 0.90 : 1)
+            .opacity(configuration.isPressed ? 0.91 : 1)
+            .shadow(color: Color(hex: 0x6C8FB8).opacity(configuration.isPressed ? 0.10 : 0),
+                    radius: configuration.isPressed ? 7 : 0, x: 0, y: 3)
+            .animation(reduceMotion ? .easeOut(duration: 0.12) : ChatMotion.press,
+                       value: configuration.isPressed)
+    }
+}
+private extension AnyTransition {
+    static var chatCinematic: AnyTransition { ChatMotion.cinematic }
+}
+
 private extension Notification.Name {
     static let customChatScrollToBottom = Notification.Name("customchat.scrollToBottom")
 }
 
-enum ChatRole: String, CaseIterable, Codable {
+enum ChatRole: String, CaseIterable, Codable, Equatable {
     case other = "对方"
     case me = "我"
 }
 
-enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, paymentReceipt, call, voice }
+enum ChatMessageKind: String, Codable, Equatable { case text, image, redPacket, transfer, paymentReceipt, call, voice }
 
 private let waveformSampleCount = 40
 
@@ -454,7 +505,7 @@ final class VoiceCaptureManager: ObservableObject {
     }
 }
 
-struct ChatMessage: Identifiable, Codable {
+struct ChatMessage: Identifiable, Codable, Equatable {
     var id: UUID
     var text: String
     var role: ChatRole
@@ -1283,10 +1334,10 @@ struct ContentView: View {
             Macaron.background.ignoresSafeArea()
             if showConversation {
                 conversationView
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .transition(.chatCinematic)
             } else {
                 mainTabView
-                    .transition(.opacity)
+                    .transition(.chatCinematic)
             }
             if let call = activeCall, isCallMinimized {
                 VStack {
@@ -1306,7 +1357,7 @@ struct ContentView: View {
                     .padding(.horizontal, 18)
                     .padding(.bottom, 10)
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.chatCinematic)
             }
         }
     }
@@ -1319,6 +1370,7 @@ struct ContentView: View {
     // infer one enormous SwiftUI expression for the entire screen.
     private var basePresentation: some View {
         pageContent
+            .buttonStyle(FluidPressButtonStyle())
             .preferredColorScheme(.light)
             .onAppear {
                 voiceCapture.onFailure = { showMicrophoneAlert = true }
@@ -1414,11 +1466,11 @@ struct ContentView: View {
                             showTransferInput = true
                         }
                     )
-                    .transition(.opacity)
+                    .transition(.chatCinematic)
                     .zIndex(20)
                 }
             }
-            .animation(.easeOut(duration: 0.18), value: showAddMenu)
+            .animation(ChatMotion.layout, value: showAddMenu)
     }
 
     private var paymentPresentation: some View {
@@ -1569,7 +1621,7 @@ struct ContentView: View {
             .alert("清空聊天记录？", isPresented: $showClearConfirmation) {
                 Button("取消", role: .cancel) {}
                 Button("清空", role: .destructive) {
-                    model.messages.removeAll()
+                    withAnimation(ChatMotion.layout) { model.messages.removeAll() }
                 }
             } message: {
                 Text("此操作会删除本机保存的全部消息和图片，无法撤销。")
@@ -1581,7 +1633,7 @@ struct ContentView: View {
                 TextField(editing?.kind == .voice ? "输入转换后的文字" : "消息内容", text: $editText)
                 Button("取消", role: .cancel) { editing = nil }
                 Button("保存") {
-                    if let editing { model.update(editing, text: editText) }
+                    if let editing { withAnimation(ChatMotion.layout) { model.update(editing, text: editText) } }
                     editing = nil
                 }
             }
@@ -1597,6 +1649,7 @@ struct ContentView: View {
                 case .profile: profileView
                 }
             }
+            .animation(ChatMotion.layout, value: selectedTab)
             tabBar
         }
     }
@@ -1673,7 +1726,8 @@ struct ContentView: View {
                                     accentColor: accentColor
                                 )
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(FluidPressButtonStyle())
+                            .transition(.chatCinematic)
                             .contextMenu {
                                 Button {
                                     model.selectContact(contact.id)
@@ -1688,6 +1742,7 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .animation(ChatMotion.layout, value: filteredContacts.map { $0.id })
                     }
                 }
                 .padding(.horizontal, 18)
@@ -1708,7 +1763,7 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.ink)
                         .frame(width: 30, height: 42)
                 }
-                Button { if model.currentContact?.isGroup == true { showCreateGroup = true } else { showFriendProfile = true } } label: { IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink) }.buttonStyle(.plain)
+                Button { if model.currentContact?.isGroup == true { showCreateGroup = true } else { showFriendProfile = true } } label: { IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink) }.buttonStyle(FluidPressButtonStyle())
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.currentContact?.name ?? model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
@@ -1765,23 +1820,27 @@ struct ContentView: View {
                                     fontSize: messageFontSize,
                                     outgoingColor: accentColor,
                                     onEdit: { editing = message; editText = message.text },
-                                    onDelete: { model.delete(message) },
-                                    onChangeRole: { model.changeRole(message) },
+                                    onDelete: { withAnimation(ChatMotion.layout) { model.delete(message) } },
+                                    onChangeRole: { withAnimation(ChatMotion.layout) { model.changeRole(message) } },
                                     onChangeTime: { editedMessageTime = message.time; timeEditingMessage = message },
-                                    onWithdraw: { model.withdraw(message) },
+                                    onWithdraw: { withAnimation(ChatMotion.layout) { model.withdraw(message) } },
                                     onImageTap: { data in previewPhoto = SelectedPhoto(data: data) },
                                     onReceiveTransfer: {
-                                        if model.receivePayment(message) {
+                                        let received = withAnimation(ChatMotion.layout) { model.receivePayment(message) }
+                                        if received {
                                             NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
                                         }
                                     }
                                 )
                                 .id(message.id)
+                                .transition(.chatCinematic)
+                                .animation(ChatMotion.layout, value: message)
                             }
                         }
                     }
                     .padding(.horizontal, 13)
                     .padding(.bottom, 13)
+                    .animation(ChatMotion.layout, value: model.messages)
                     Color.clear
                         .frame(height: 1)
                         .id("chat-bottom-anchor")
@@ -1839,7 +1898,7 @@ struct ContentView: View {
             .padding(.bottom, 6)
 
             composer
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.chatCinematic)
         }
         .background(Macaron.card)
         .padding(.bottom, messageFocused ? 8 : 0)
@@ -1863,27 +1922,27 @@ struct ContentView: View {
                     .padding(.trailing, 1)
                 if model.currentContact?.isGroup == true {
                     Button {
-                        withAnimation(.easeOut(duration: 0.16)) { model.selectGroupSender(nil) }
+                        withAnimation(ChatMotion.layout) { model.selectGroupSender(nil) }
                     } label: {
                         senderIdentityChip(name: model.identity.me, selected: model.activeGroupSenderID == nil, tint: accentColor)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FluidPressButtonStyle())
                     ForEach(model.currentContact.map { model.groupMembers($0) } ?? []) { member in
                         Button {
-                            withAnimation(.easeOut(duration: 0.16)) { model.selectGroupSender(member.id) }
+                            withAnimation(ChatMotion.layout) { model.selectGroupSender(member.id) }
                         } label: {
                             senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(FluidPressButtonStyle())
                     }
                 } else {
                     ForEach(ChatRole.allCases, id: \.self) { role in
                         Button {
-                            withAnimation(.easeOut(duration: 0.16)) { model.activeRole = role }
+                            withAnimation(ChatMotion.layout) { model.activeRole = role }
                         } label: {
                             senderIdentityChip(name: model.name(for: role), selected: model.activeRole == role, tint: role == .me ? accentColor : Macaron.pink)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(FluidPressButtonStyle())
                     }
                 }
                 Spacer(minLength: 0)
@@ -1920,7 +1979,7 @@ struct ContentView: View {
                             .background(accentColor.opacity(0.68), in: Circle())
                             .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FluidPressButtonStyle())
                     .accessibilityLabel("添加聊天内容")
                 }
 
@@ -1935,6 +1994,11 @@ struct ContentView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("语音输入").font(.system(size: 14, weight: .semibold)).foregroundStyle(Macaron.ink)
                                     Text(voiceCapture.isPreparing ? "正在准备离线模型" : voiceCapture.isRecording ? "正在聆听 · 点击停止" : voiceCapture.isFinalizing ? "正在整理识别结果" : voiceCapture.hasCapture ? "识别完成，可编辑文字" : "中文离线识别")
+                                        .contentTransition(.interpolate)
+                                        .animation(ChatMotion.text, value: voiceCapture.isPreparing)
+                                        .animation(ChatMotion.text, value: voiceCapture.isRecording)
+                                        .animation(ChatMotion.text, value: voiceCapture.isFinalizing)
+                                        .animation(ChatMotion.text, value: voiceCapture.hasCapture)
                                         .font(.system(size: 10, weight: .medium)).foregroundStyle(Macaron.secondary).lineLimit(1)
                                 }
                                 Spacer()
@@ -1959,7 +2023,7 @@ struct ContentView: View {
                                         Image(systemName: voiceCapture.isRecording ? "stop.fill" : "mic.fill").font(.system(size: 18, weight: .semibold))
                                             .foregroundStyle(voiceCapture.isRecording ? Color(hex: 0xD96F7D) : Color(hex: 0x4F91D2))
                                     }
-                                }.buttonStyle(.plain).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                }.buttonStyle(FluidPressButtonStyle()).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(alignment: .center, spacing: 1.5) {
                                         ForEach(Array(voiceCapture.samples.suffix(28).enumerated()), id: \.offset) { _, value in
@@ -1976,7 +2040,7 @@ struct ContentView: View {
                                 Button(action: sendVoiceMessage) {
                                     Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
                                         .frame(width: 42, height: 42).background(Color(hex: 0x5799D9), in: Circle())
-                                }.buttonStyle(.plain).disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
+                                }.buttonStyle(FluidPressButtonStyle()).disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
                                     .opacity(voiceCapture.hasCapture && !voiceCapture.isFinalizing ? 1 : 0.38)
                             }
                             HStack {
@@ -1985,7 +2049,7 @@ struct ContentView: View {
                                     voiceCapture.transcript = ""
                                     withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
                                 } label: { Text("取消").font(.system(size: 12, weight: .medium)).foregroundStyle(Macaron.secondary) }
-                                .buttonStyle(.plain)
+                                .buttonStyle(FluidPressButtonStyle())
                                 Spacer()
                                 Text("录音仅在本机处理").font(.system(size: 10)).foregroundStyle(Macaron.secondary.opacity(0.85))
                                 Spacer()
@@ -1994,7 +2058,7 @@ struct ContentView: View {
                                     voiceCapture.transcript = ""
                                     voiceCapture.start { showMicrophoneAlert = true }
                                 } label: { Text("重新开始").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2)) }
-                                .buttonStyle(.plain).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                .buttonStyle(FluidPressButtonStyle()).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
                             }
                         }
                         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
@@ -2021,7 +2085,7 @@ struct ContentView: View {
                                     .frame(width: 34, height: 34)
                                     .background(Macaron.blue, in: Circle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(FluidPressButtonStyle())
                             .accessibilityLabel("开始语音输入")
                             Button(action: sendText) {
                                 Image(systemName: "arrow.up")
@@ -2077,6 +2141,8 @@ struct ContentView: View {
                         IdentityAvatar(data: model.identity.meAvatarData, name: model.name(for: .me), size: 66, tint: Macaron.blue)
                         VStack(alignment: .leading, spacing: 6) {
                             Text(model.name(for: .me))
+                                .contentTransition(.interpolate)
+                                .animation(ChatMotion.text, value: model.identity.me)
                                 .font(.system(size: 19, weight: .semibold))
                                 .foregroundStyle(Macaron.ink)
                             Text("编辑头像与个人资料")
@@ -2091,7 +2157,7 @@ struct ContentView: View {
                     .padding(17)
                     .background(Macaron.card, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(FluidPressButtonStyle())
                 .padding(.horizontal, 18)
 
                 VStack(alignment: .leading, spacing: 13) {
@@ -2167,7 +2233,7 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.22)) {
+                        withAnimation(ChatMotion.layout) {
                             isProfileSettingsExpanded.toggle()
                         }
                     } label: {
@@ -2186,7 +2252,7 @@ struct ContentView: View {
                         .padding(.top, 12)
                         .padding(.bottom, isProfileSettingsExpanded ? 0 : 12)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(FluidPressButtonStyle())
                     if isProfileSettingsExpanded {
                     VStack(spacing: 0) {
                     SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
@@ -2275,7 +2341,9 @@ struct ContentView: View {
                                 }
                             }
                             .padding(.horizontal, 18)
+                            .transition(.chatCinematic)
                         }
+                        .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
                     }
                 }
                 .sheet(isPresented: $showAllMyMoments) {
@@ -2421,12 +2489,14 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         ForEach(model.calls) { call in
                             CallHistoryRow(record: call, name: model.name(for: .other))
+                                .transition(.chatCinematic)
                             if call.id != model.calls.last?.id {
                                 Divider().overlay(Macaron.line).padding(.leading, 70)
                             }
                         }
                     }
                     .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .animation(ChatMotion.layout, value: model.calls.map { $0.id })
                     .padding(.horizontal, 18)
                 }
                 Spacer(minLength: 20)
@@ -2498,7 +2568,7 @@ struct ContentView: View {
                                         .clipped()
                                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(FluidPressButtonStyle())
                             }
                         }
                     }
@@ -2511,7 +2581,7 @@ struct ContentView: View {
     private var tabBar: some View {
         HStack(spacing: 0) {
             ForEach(AppTab.allCases, id: \.self) { tab in
-                Button { selectedTab = tab } label: {
+                Button { withAnimation(ChatMotion.layout) { selectedTab = tab } } label: {
                     VStack(spacing: 5) {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 21, weight: selectedTab == tab ? .semibold : .regular))
@@ -2529,7 +2599,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(FluidPressButtonStyle())
             }
         }
         .padding(.horizontal, 9)
@@ -2726,7 +2796,7 @@ struct ContentView: View {
                         .overlay(Circle().stroke(.white, lineWidth: 2))
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FluidPressButtonStyle())
             VStack(alignment: .leading, spacing: 7) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
@@ -2831,9 +2901,13 @@ private struct ChatListRow: View {
             }
             VStack(alignment: .leading, spacing: 7) {
                 Text(name)
+                    .contentTransition(.interpolate)
+                    .animation(ChatMotion.text, value: name)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Macaron.ink)
                 Text(preview.isEmpty ? " " : preview)
+                    .contentTransition(.interpolate)
+                    .animation(ChatMotion.text, value: preview)
                     .font(.system(size: 13))
                     .foregroundStyle(Macaron.secondary)
                     .lineLimit(1)
@@ -2878,7 +2952,7 @@ private struct ProfileIdentityCard: View {
             .padding(17)
             .background(Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FluidPressButtonStyle())
     }
 }
 
@@ -2911,7 +2985,7 @@ private struct SettingsRow: View {
             .frame(height: 52)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FluidPressButtonStyle())
     }
 }
 
@@ -2990,6 +3064,7 @@ private struct EmptyHint: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 28)
+        .transition(.chatCinematic)
     }
 }
 
@@ -3058,6 +3133,9 @@ private struct MessageRow: View {
             else { Spacer(minLength: 58) }
         }
         .frame(maxWidth: .infinity)
+        .animation(ChatMotion.layout, value: isMe)
+        .animation(ChatMotion.layout, value: message.isWithdrawn)
+        .animation(ChatMotion.layout, value: message.isReceived)
     }
 
     @ViewBuilder private var messageBubble: some View {
@@ -3103,6 +3181,8 @@ private struct MessageRow: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Macaron.ink)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")")
+                        .contentTransition(.numericText())
+                        .animation(ChatMotion.text, value: message.amount ?? 0)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(Macaron.ink)
@@ -3135,7 +3215,7 @@ private struct MessageRow: View {
                                 .background(Color.white.opacity(0.72), in: Capsule())
                                 .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(FluidPressButtonStyle())
                         .accessibilityLabel("一键领取红包")
                         .padding(.top, 2)
                     } else if message.isReceived {
@@ -3177,9 +3257,11 @@ private struct MessageRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous)).padding(7)
                     .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color.white.opacity(0.95), lineWidth: 1.4))
-            }.buttonStyle(.plain)
+            }.buttonStyle(FluidPressButtonStyle())
         } else {
             Text(message.text).font(.system(size: fontSize)).foregroundStyle(Macaron.ink)
+                .contentTransition(.interpolate)
+                .animation(ChatMotion.text, value: message.text)
                 .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 15).padding(.vertical, 11)
                 .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
@@ -3258,7 +3340,7 @@ private struct AddContentMenuItem: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FluidPressButtonStyle())
     }
 }
 
@@ -3630,7 +3712,7 @@ private struct FriendProfileSheet: View {
                                     .overlay(Circle().stroke(.white, lineWidth: 2))
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(FluidPressButtonStyle())
                         TextField("好友昵称", text: $contact.name)
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(Macaron.ink)
@@ -3699,6 +3781,7 @@ private struct FriendProfileSheet: View {
                                 }
                                 .padding(15)
                                 .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .transition(.chatCinematic)
                                 .contextMenu {
                                     Button("编辑动态", systemImage: "pencil") {
                                         editingMomentID = post.id
@@ -3710,6 +3793,7 @@ private struct FriendProfileSheet: View {
                                     }
                                 }
                             }
+                            .animation(ChatMotion.layout, value: contact.moments.map { $0.id })
                         }
                     }
                 }
@@ -4019,6 +4103,8 @@ private struct VoiceMessageBubble: View {
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(Macaron.secondary)
                         Text(message.text)
+                            .contentTransition(.interpolate)
+                            .animation(ChatMotion.text, value: message.text)
                             .font(.system(size: 13))
                             .foregroundStyle(Macaron.ink)
                             .fixedSize(horizontal: false, vertical: true)
@@ -4036,7 +4122,7 @@ private struct VoiceMessageBubble: View {
             .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FluidPressButtonStyle())
         .accessibilityLabel(message.text.isEmpty ? "语音消息，时长\(durationText)，点击播放静音动画" : "语音消息，已转换文字，时长\(durationText)")
     }
 }
@@ -4060,7 +4146,7 @@ private struct CallControlButton: View {
                     .foregroundStyle(Macaron.secondary)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FluidPressButtonStyle())
     }
 }
 
