@@ -2597,6 +2597,7 @@ struct ContentView: View {
                                 .font(.system(size: 10))
                                 .foregroundStyle(Macaron.secondary)
                             }
+                        } else {
                             Button { Task { await voiceCapture.downloadModel() } } label: {
                                 HStack {
                                     Image(systemName: voiceCapture.isModelInstalled ? "arrow.down.circle" : "arrow.down.to.line")
