@@ -948,83 +948,137 @@ private final class ChatModel: ObservableObject {
         let isGroupThread = contacts.contains(where: { $0.id == contactID && $0.isGroup == true })
         let group = isGroupThread ? contacts.first(where: { $0.id == contactID && $0.isGroup == true }) : nil
 
-        // Preserve a one-time, untouched snapshot before any shared-thread migration.
-        // This gives us a recovery point if a future migration ever mishandles old records.
+        // Keep an untouched device-local copy before migrating any legacy histories.
         if UserDefaults.standard.data(forKey: threadsBackupKey) == nil,
            !threadMessages.isEmpty,
            let backup = try? JSONEncoder().encode(threadMessages) {
             UserDefaults.standard.set(backup, forKey: threadsBackupKey)
         }
 
-        // Always merge legacy copies, even when a shared copy already exists.
-        // This repairs partial migrations without discarding newer messages or attachments.
+        // Old releases stored a separate thread for each account. Prefer the
+        // untouched snapshot for legacy keys, then fill any keys missing from it
+        // with the current store. The shared key is handled separately below.
+        var legacyThreads: [String: [ChatMessage]] = [:]
+        if let backupData = UserDefaults.standard.data(forKey: threadsBackupKey),
+           let backupThreads = try? JSONDecoder().decode([String: [ChatMessage]].self, from: backupData) {
+            legacyThreads = backupThreads
+        }
+        for (legacyKey, history) in threadMessages where legacyThreads[legacyKey] == nil {
+            legacyThreads[legacyKey] = history
+        }
+
         var sources: [([ChatMessage], UUID, UUID)] = []
         if isGroupThread {
             let suffix = "::\(contactID.uuidString)"
-            for (legacyKey, history) in threadMessages where legacyKey != key && legacyKey.hasSuffix(suffix) {
+            for (legacyKey, history) in legacyThreads
+            where legacyKey != key && legacyKey.hasSuffix(suffix) {
                 let ownerPart = String(legacyKey.dropLast(suffix.count))
-                let sourceOwnerID = ownerPart == "self" ? mainAccountID : (UUID(uuidString: ownerPart) ?? ownerID)
+                let sourceOwnerID = ownerPart == "self"
+                    ? mainAccountID
+                    : (UUID(uuidString: ownerPart) ?? group?.ownerAccountID ?? ownerID)
                 sources.append((history, sourceOwnerID, contactID))
             }
         } else {
-            let legacyKey = "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
-            if let ownHistory = threadMessages[legacyKey] {
+            let ownLegacyKey = "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
+            if ownLegacyKey != key, let ownHistory = legacyThreads[ownLegacyKey] {
                 sources.append((ownHistory, ownerID, contactID))
-            } else if personaID == nil, let ownLegacyHistory = threadMessages[contactID.uuidString] {
-                sources.append((ownLegacyHistory, ownerID, contactID))
             }
+            // Some pre-account builds stored the first conversation directly under
+            // the contact UUID. Import it too instead of treating it as a new chat.
+            if personaID == nil, contactID.uuidString != key,
+               let bareHistory = legacyThreads[contactID.uuidString] {
+                sources.append((bareHistory, ownerID, contactID))
+            }
+
             let ownerFriends = friendIDsByAccount[ownerID.uuidString] ?? []
             let contactFriends = friendIDsByAccount[contactID.uuidString] ?? []
-            let isMutualFriend = ownerFriends.contains(contactID.uuidString) && contactFriends.contains(ownerID.uuidString)
+            let isMutualFriend = ownerFriends.contains(contactID.uuidString)
+                && contactFriends.contains(ownerID.uuidString)
             if isMutualFriend {
                 let reverseLegacyKey = "\(contactID.uuidString)::\(ownerID.uuidString)"
-                if let reverseHistory = threadMessages[reverseLegacyKey] {
+                if reverseLegacyKey != key, let reverseHistory = legacyThreads[reverseLegacyKey] {
                     sources.append((reverseHistory, contactID, ownerID))
                 }
             }
         }
 
-        var merged: [UUID: ChatMessage] = [:]
-        for (history, sourceOwnerID, _) in sources {
+        // Rebuild sender attribution from the original perspective of each legacy
+        // thread. In direct chats, .me belongs to the source owner and .other to
+        // the source contact. Build #139/#140 accidentally assigned both roles to
+        // sourceOwnerID, which made the whole history appear to come from one side.
+        var legacyMessages: [UUID: ChatMessage] = [:]
+        var recoveredSenderIDs: [UUID: UUID] = [:]
+        var legacyOwnerIDsForOtherMessages: [UUID: Set<UUID>] = [:]
+        let groupMembersList = group.map { groupMembers($0) } ?? []
+        let groupMemberIDs = Set(groupMembersList.map(\.id))
+
+        for (history, sourceOwnerID, sourceContactID) in sources {
             for original in history {
                 var message = original
-                if message.senderAccountID == nil {
-                    if isGroupThread, let senderName = message.senderName,
-                       let matched = group.flatMap({ groupMembers($0).first(where: { $0.name == senderName }) }) {
-                        message.senderAccountID = matched.id
-                    } else if isGroupThread, message.role == .other,
-                              let fallbackSender = group.flatMap({ groupMembers($0).first(where: { $0.id != sourceOwnerID }) }) {
-                        message.senderAccountID = fallbackSender.id
+                let resolvedSenderID: UUID?
+                if isGroupThread {
+                    if let existingID = message.senderAccountID, groupMemberIDs.contains(existingID) {
+                        resolvedSenderID = existingID
+                    } else if let senderName = message.senderName,
+                              let matched = groupMembersList.first(where: { $0.name == senderName }) {
+                        resolvedSenderID = matched.id
+                    } else if message.role == .me {
+                        resolvedSenderID = sourceOwnerID
                     } else {
-                        message.senderAccountID = sourceOwnerID
+                        resolvedSenderID = groupMembersList.first(where: { $0.id != sourceOwnerID })?.id
+                    }
+                } else {
+                    resolvedSenderID = message.senderAccountID
+                        ?? (message.role == .me ? sourceOwnerID : sourceContactID)
+                    if message.role == .other {
+                        legacyOwnerIDsForOtherMessages[message.id, default: []].insert(sourceOwnerID)
                     }
                 }
-                merged[message.id] = message
+
+                if let resolvedSenderID {
+                    if recoveredSenderIDs[message.id] == nil {
+                        recoveredSenderIDs[message.id] = resolvedSenderID
+                    }
+                    message.senderAccountID = resolvedSenderID
+                }
+                if legacyMessages[message.id] == nil {
+                    legacyMessages[message.id] = message
+                }
             }
         }
 
-        // Shared copy wins on duplicate IDs because it may contain later edits,
-        // withdrawals, payment state, or corrected sender metadata.
+        // Start from recovered legacy messages, then overlay the latest shared
+        // payload so edits, withdrawals, payment state, images and voice data win.
+        var merged = legacyMessages
         for original in threadMessages[key] ?? [] {
             var message = original
-            if message.senderAccountID == nil {
+            if let recoveredSenderID = recoveredSenderIDs[message.id] {
+                let knownBadOwners = legacyOwnerIDsForOtherMessages[message.id] ?? []
+                if message.senderAccountID == nil || knownBadOwners.contains(message.senderAccountID!) {
+                    message.senderAccountID = recoveredSenderID
+                }
+            } else if message.senderAccountID == nil {
                 if isGroupThread, let senderName = message.senderName,
-                   let matched = group.flatMap({ groupMembers($0).first(where: { $0.name == senderName }) }) {
+                   let matched = groupMembersList.first(where: { $0.name == senderName }) {
                     message.senderAccountID = matched.id
                 } else {
-                    message.senderAccountID = message.role == .me ? ownerID : groupMembers(group ?? ChatContact(name: "群聊")).first(where: { $0.id != ownerID })?.id ?? ownerID
+                    message.senderAccountID = message.role == .me ? ownerID : contactID
                 }
             }
             merged[message.id] = message
         }
 
-        var normalized = Array(merged.values).sorted { $0.time < $1.time }
+        var normalized = Array(merged.values).sorted {
+            if $0.time == $1.time { return $0.id.uuidString < $1.id.uuidString }
+            return $0.time < $1.time
+        }
         for index in normalized.indices {
             if normalized[index].senderAccountID == nil {
                 normalized[index].senderAccountID = normalized[index].role == .me ? ownerID : contactID
             }
             normalized[index].role = normalized[index].senderAccountID == ownerID ? .me : .other
         }
+
         threadMessages[key] = normalized
         persistAllThreads()
         return normalized
