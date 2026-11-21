@@ -686,6 +686,7 @@ private final class ChatModel: ObservableObject {
     }
     private let messagesKey = "customchat.messages.v1"
     private let threadsKey = "customchat.threads.v1"
+    private let threadsBackupKey = "customchat.threads.preSharedBackup.v1"
     private let identityKey = "customchat.identity.v1"
     private let callsKey = "customchat.calls.v1"
     private let contactsKey = "customchat.contacts.v1"
@@ -788,11 +789,16 @@ private final class ChatModel: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: threadsKey),
            let value = try? JSONDecoder().decode([String: [ChatMessage]].self, from: data) {
             threadMessages = value
-        } else if let legacyData = UserDefaults.standard.data(forKey: messagesKey),
-                  let legacyMessages = try? JSONDecoder().decode([ChatMessage].self, from: legacyData),
-                  let firstContactID = contacts.first?.id {
-            // Migrate the original single-chat history into the first contact's thread.
-            threadMessages[firstContactID.uuidString] = legacyMessages
+        }
+        // Import the original single-thread store even when a newer thread dictionary
+        // already exists. Older releases could have written messagesKey independently.
+        if let legacyData = UserDefaults.standard.data(forKey: messagesKey),
+           let legacyMessages = try? JSONDecoder().decode([ChatMessage].self, from: legacyData),
+           let firstContactID = contacts.first?.id {
+            let legacyKey = firstContactID.uuidString
+            if threadMessages[legacyKey] == nil, !legacyMessages.isEmpty {
+                threadMessages[legacyKey] = legacyMessages
+            }
         }
 
         isSwitchingThread = true
@@ -942,8 +948,16 @@ private final class ChatModel: ObservableObject {
         let isGroupThread = contacts.contains(where: { $0.id == contactID && $0.isGroup == true })
         let group = isGroupThread ? contacts.first(where: { $0.id == contactID && $0.isGroup == true }) : nil
 
-        // Always merge legacy group copies, even when a shared copy already exists.
-        // This repairs partial migrations from earlier builds without discarding newer messages.
+        // Preserve a one-time, untouched snapshot before any shared-thread migration.
+        // This gives us a recovery point if a future migration ever mishandles old records.
+        if UserDefaults.standard.data(forKey: threadsBackupKey) == nil,
+           !threadMessages.isEmpty,
+           let backup = try? JSONEncoder().encode(threadMessages) {
+            UserDefaults.standard.set(backup, forKey: threadsBackupKey)
+        }
+
+        // Always merge legacy copies, even when a shared copy already exists.
+        // This repairs partial migrations without discarding newer messages or attachments.
         var sources: [([ChatMessage], UUID, UUID)] = []
         if isGroupThread {
             let suffix = "::\(contactID.uuidString)"
