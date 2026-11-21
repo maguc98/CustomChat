@@ -814,8 +814,11 @@ private final class ChatModel: ObservableObject {
     var activeAccountID: UUID { activePersonaID ?? mainAccountID }
 
     var mainIdentityContact: ChatContact {
-        ChatContact(id: mainAccountID, name: identity.me, avatarData: identity.meAvatarData,
-                    bio: "这是我的主账号。", accountNumber: mainAccountNumber)
+        ChatContact(id: mainAccountID,
+                    name: identity.me.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "我" : identity.me,
+                    avatarData: identity.meAvatarData,
+                    bio: "这是我的主账号。",
+                    accountNumber: mainAccountNumber)
     }
 
     var activeAccountContact: ChatContact {
@@ -831,7 +834,7 @@ private final class ChatModel: ObservableObject {
     }
 
     var friendAccountIDs: Set<UUID> {
-        Set((friendIDsByAccount[activeAccountID.uuidString] ?? []).compactMap(UUID.init(uuidString:)))
+        Set((friendIDsByAccount[activeAccountID.uuidString] ?? []).compactMap { UUID(uuidString: $0) })
     }
 
     var friendContacts: [ChatContact] {
@@ -1005,14 +1008,17 @@ private final class ChatModel: ObservableObject {
         let targetKey = accountID.uuidString
         var updated = friendIDsByAccount
         var activeFriends = updated[activeKey] ?? []
-        guard !activeFriends.contains(targetKey) else { return false }
+        let wasAlreadyAdded = activeFriends.contains(targetKey)
         activeFriends.insert(targetKey)
         updated[activeKey] = activeFriends
         var targetFriends = updated[targetKey] ?? []
+        let reciprocalWasMissing = !targetFriends.contains(activeKey)
         targetFriends.insert(activeKey)
         updated[targetKey] = targetFriends
-        friendIDsByAccount = updated
-        return true
+        if !wasAlreadyAdded || reciprocalWasMissing {
+            friendIDsByAccount = updated
+        }
+        return !wasAlreadyAdded
     }
 
     @discardableResult
@@ -1756,7 +1762,7 @@ struct ContentView: View {
         )) { target in
             MomentCommentsSheet(
                 comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
-                authorOptions: ([model.activePersonaName, model.identity.me] + model.friendContacts.filter { $0.isGroup != true }.map { $0.name }).reduce(into: [String]()) { result, name in
+                authorOptions: ([model.activePersonaName] + model.friendContacts.filter { $0.isGroup != true }.map { $0.name }).reduce(into: [String]()) { result, name in
                     if !result.contains(name) { result.append(name) }
                 },
                 onSend: { comment in
