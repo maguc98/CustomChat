@@ -527,10 +527,10 @@ struct ChatMessage: Identifiable, Codable {
         id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
         self.kind = kind ?? (imageData == nil ? .text : .image)
         self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName; self.senderAvatarData = senderAvatarData
-        self.voiceDuration = voiceDuration; self.waveform = waveform
+        self.voiceDuration = voiceDuration; self.waveform = waveform; self.voiceTranscript = voiceTranscript
     }
 
-    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName, senderAvatarData, voiceDuration, waveform }
+    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName, senderAvatarData, voiceDuration, waveform, voiceTranscript }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
