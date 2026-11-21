@@ -2605,13 +2605,19 @@ struct ContentView: View {
     }
 
     private var contactsView: some View {
-        VStack(spacing: 0) {
+        let visibleContacts = model.friendContacts.filter { $0.id != model.activeAccountID }.filter {
+            searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) || ($0.accountNumber ?? "").localizedCaseInsensitiveContains(searchText)
+        }
+        let groups = visibleContacts.filter { $0.isGroup == true }
+        let friends = visibleContacts.filter { $0.isGroup != true }
+
+        return VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("通讯录")
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .foregroundStyle(messageTextColor)
-                    Text("当前账号 · \(model.friendContacts.filter { $0.isGroup != true && $0.id != model.activeAccountID }.count) 位好友")
+                    Text("当前账号 · \(friends.count) 位好友 · \(groups.count) 个群聊")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
                 }
@@ -2619,6 +2625,7 @@ struct ContentView: View {
                 Menu {
                     Button("扫一扫添加好友", systemImage: "qrcode.viewfinder") { showVirtualScanner = true }
                     Button("手动添加好友", systemImage: "person.badge.plus") { showAddContact = true }
+                    Button("创建群聊", systemImage: "person.3") { showCreateGroup = true }
                 } label: {
                     Image(systemName: "person.badge.plus")
                         .font(.system(size: 17, weight: .semibold))
@@ -2645,14 +2652,62 @@ struct ContentView: View {
             .padding(.bottom, 12)
 
             ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 8) {
-                    let friends = model.friendContacts.filter { $0.isGroup != true && $0.id != model.activeAccountID }.filter {
-                        searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) || ($0.accountNumber ?? "").localizedCaseInsensitiveContains(searchText)
-                    }
-                    if friends.isEmpty {
-                        EmptyHint(symbol: "person.2", title: "通讯录还是空的", subtitle: "添加好友后，他们会一直保留在通讯录中。")
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if groups.isEmpty && friends.isEmpty {
+                        EmptyHint(symbol: "person.2", title: "通讯录还是空的", subtitle: "添加好友或创建群聊后，他们会显示在这里。")
+                            .frame(maxWidth: .infinity)
                             .padding(.top, 48)
-                    } else {
+                    }
+
+                    if !groups.isEmpty {
+                        Text("群聊")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Macaron.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 4)
+
+                        ForEach(groups) { group in
+                            Button {
+                                model.selectContact(group.id)
+                                withAnimation(ChatMotion.layout) { showConversation = true }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    IdentityAvatar(data: group.avatarData, name: group.name, size: 48, tint: Macaron.blue)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(group.name)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(messageTextColor)
+                                        Text("群聊 · \(model.groupMembers(group).count) 位成员")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(Macaron.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Macaron.secondary)
+                                }
+                                .padding(12)
+                                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+                            .buttonStyle(FluidPressButtonStyle())
+                            .contextMenu {
+                                Button {
+                                    editingGroup = group
+                                } label: {
+                                    Label("编辑群聊资料", systemImage: "square.and.pencil")
+                                }
+                            }
+                        }
+                    }
+
+                    if !friends.isEmpty {
+                        Text("好友")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Macaron.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.top, groups.isEmpty ? 4 : 12)
+
                         ForEach(friends) { contact in
                             Button {
                                 model.selectContact(contact.id)
@@ -2661,12 +2716,17 @@ struct ContentView: View {
                                 HStack(spacing: 12) {
                                     IdentityAvatar(data: contact.avatarData, name: contact.name, size: 48, tint: Macaron.pink)
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(contact.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(messageTextColor)
+                                        Text(contact.name)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(messageTextColor)
                                         Text("账号编号  \(contact.accountNumber ?? "未分配")")
-                                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Macaron.secondary)
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundStyle(Macaron.secondary)
                                     }
                                     Spacer()
-                                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Macaron.secondary)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Macaron.secondary)
                                 }
                                 .padding(12)
                                 .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
