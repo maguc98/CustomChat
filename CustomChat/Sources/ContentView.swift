@@ -520,9 +520,10 @@ struct ChatMessage: Identifiable, Codable {
     var senderAvatarData: Data?
     var voiceDuration: Double
     var waveform: [Double]
+    var voiceTranscript: String?
 
     init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil,
-         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil, senderAvatarData: Data? = nil, voiceDuration: Double = 0, waveform: [Double] = []) {
+         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil, senderAvatarData: Data? = nil, voiceDuration: Double = 0, waveform: [Double] = [], voiceTranscript: String? = nil) {
         id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
         self.kind = kind ?? (imageData == nil ? .text : .image)
         self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName; self.senderAvatarData = senderAvatarData
@@ -547,6 +548,7 @@ struct ChatMessage: Identifiable, Codable {
         senderAvatarData = try values.decodeIfPresent(Data.self, forKey: .senderAvatarData)
         voiceDuration = try values.decodeIfPresent(Double.self, forKey: .voiceDuration) ?? 0
         waveform = try values.decodeIfPresent([Double].self, forKey: .waveform) ?? []
+        voiceTranscript = try values.decodeIfPresent(String.self, forKey: .voiceTranscript)
     }
 }
 
@@ -819,8 +821,8 @@ private final class ChatModel: ObservableObject {
         messages.append(ChatMessage(text: value, role: activeRole, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
     }
 
-    func sendVoice(duration: Double, waveform: [Double], text: String = "") {
-        messages.append(ChatMessage(text: text, role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, voiceDuration: duration, waveform: waveform))
+    func sendVoice(duration: Double, waveform: [Double], text: String = "", recognizedText: String = "") {
+        messages.append(ChatMessage(text: text, role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, voiceDuration: duration, waveform: waveform, voiceTranscript: recognizedText))
     }
 
     func sendImage(_ data: Data) {
@@ -1298,6 +1300,9 @@ struct ContentView: View {
     @State private var editText = ""
     @State private var activeCall: SimulatedCall?
     @State private var isCallMinimized = false
+    @State private var minimizedCallPosition: CGPoint?
+    @State private var minimizedCallDragOrigin: CGPoint?
+    @State private var isVoiceTextMode = false
     @State private var previewPhoto: SelectedPhoto?
     @State private var showClearConfirmation = false
     @State private var showAllMyMoments = false
@@ -1347,29 +1352,59 @@ struct ContentView: View {
                 mainTabView
                     .transition(.chatCinematic)
             }
+        }
+        .overlay {
             if let call = activeCall, isCallMinimized {
-                VStack {
-                    Spacer()
-                    Button { isCallMinimized = false } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: call.isVideo ? "video.fill" : "phone.fill")
-                            Text(call.isVideo ? "视频通话进行中" : "语音通话进行中")
-                            Spacer()
-                            Text("返回通话")
+                GeometryReader { geometry in
+                    let current = minimizedCallPosition ?? CGPoint(x: geometry.size.width - 104, y: 76)
+                    Button {
+                        withAnimation(ChatMotion.layout) { isCallMinimized = false }
+                    } label: {
+                        HStack(spacing: 9) {
+                            ZStack {
+                                Circle().fill(Color(hex: 0xE5F1FD)).frame(width: 34, height: 34)
+                                Image(systemName: call.isVideo ? "video.fill" : "phone.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x4F91D2))
+                            }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(call.isVideo ? "视频通话中" : "语音通话中")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Macaron.ink)
+                                Text("轻点返回 · 可拖动")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(Macaron.secondary)
+                            }
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Macaron.secondary)
                         }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
-                        .padding(14)
-                        .background(Macaron.blue, in: Capsule())
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 9)
+                        .frame(width: 184, height: 56)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
+                        .shadow(color: Color(hex: 0x607FA5).opacity(0.17), radius: 14, x: 0, y: 5)
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 10)
+                    .buttonStyle(.plain)
+                    .position(current)
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 5)
+                            .onChanged { value in
+                                let origin = minimizedCallDragOrigin ?? current
+                                if minimizedCallDragOrigin == nil { minimizedCallDragOrigin = current }
+                                let x = min(max(94, origin.x + value.translation.width), max(94, geometry.size.width - 94))
+                                let y = min(max(36, origin.y + value.translation.height), max(36, geometry.size.height - 36))
+                                minimizedCallPosition = CGPoint(x: x, y: y)
+                            }
+                            .onEnded { _ in minimizedCallDragOrigin = nil }
+                    )
                 }
                 .transition(.chatCinematic)
+                .zIndex(50)
             }
         }
     }
-
     var body: some View {
         preferenceDialogs
     }
@@ -1539,6 +1574,7 @@ struct ContentView: View {
                         name: model.name(for: .other),
                         meName: model.name(for: .me),
                         avatarData: model.avatar(for: .other),
+                        meAvatarData: model.avatar(for: .me),
                         call: call,
                         onMinimize: {
                             call.videoPlayer?.pause()
@@ -1637,11 +1673,11 @@ struct ContentView: View {
             } message: {
                 Text("此操作会删除本机保存的全部消息和图片，无法撤销。")
             }
-            .alert(editing?.kind == .voice ? "转为文字" : "编辑消息", isPresented: Binding(
+            .alert(editing?.kind == .voice ? "自定义语音文字" : "编辑消息", isPresented: Binding(
                 get: { editing != nil },
                 set: { if !$0 { editing = nil } }
             )) {
-                TextField(editing?.kind == .voice ? "输入转换后的文字" : "消息内容", text: $editText)
+                TextField(editing?.kind == .voice ? "输入要显示的自定义文字" : "消息内容", text: $editText)
                 Button("取消", role: .cancel) { editing = nil }
                 Button("保存") {
                     if let editing { withAnimation(ChatMotion.layout) { model.update(editing, text: editText) } }
@@ -1831,6 +1867,12 @@ struct ContentView: View {
                                     fontSize: messageFontSize,
                                     outgoingColor: accentColor,
                                     onEdit: { editing = message; editText = message.text },
+                                    onVoiceTranscript: {
+                                        let recognized = message.voiceTranscript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? message.text
+                                        guard !recognized.isEmpty else { return }
+                                        withAnimation(ChatMotion.layout) { model.update(message, text: recognized) }
+                                    },
+                                    onVoiceCustom: { editing = message; editText = message.text },
                                     onDelete: { withAnimation(ChatMotion.layout) { model.delete(message) } },
                                     onChangeRole: { withAnimation(ChatMotion.layout) { model.changeRole(message) } },
                                     onChangeTime: { editedMessageTime = message.time; timeEditingMessage = message },
@@ -1996,83 +2038,109 @@ struct ContentView: View {
 
                 Group {
                     if isVoiceComposer {
-                        VStack(alignment: .leading, spacing: 13) {
+                        VStack(alignment: .leading, spacing: 12) {
                             HStack(spacing: 8) {
-                                ZStack {
-                                    Circle().fill(Color(hex: 0xEAF4FD)).frame(width: 30, height: 30)
-                                    Image(systemName: "waveform").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("语音输入").font(.system(size: 14, weight: .semibold)).foregroundStyle(Macaron.ink)
-                                    Text(voiceCapture.isPreparing ? "正在准备离线模型" : voiceCapture.isRecording ? "正在聆听 · 点击停止" : voiceCapture.isFinalizing ? "正在整理识别结果" : voiceCapture.hasCapture ? "识别完成，可编辑文字" : "中文离线识别")
-                                        .contentTransition(.interpolate)
-                                        .animation(ChatMotion.text, value: voiceCapture.isPreparing)
-                                        .animation(ChatMotion.text, value: voiceCapture.isRecording)
-                                        .animation(ChatMotion.text, value: voiceCapture.isFinalizing)
-                                        .animation(ChatMotion.text, value: voiceCapture.hasCapture)
-                                        .font(.system(size: 10, weight: .medium)).foregroundStyle(Macaron.secondary).lineLimit(1)
-                                }
+                                Image(systemName: isVoiceTextMode ? "text.alignleft" : "waveform")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x4F91D2))
+                                Text(isVoiceTextMode ? "语音转文字" : "语音输入")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Macaron.ink)
                                 Spacer()
-                                if voiceCapture.isRecording {
-                                    HStack(spacing: 5) {
-                                        Circle().fill(Color(hex: 0xE87986)).frame(width: 6, height: 6)
-                                        Text("LIVE").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(0.7)
-                                    }.foregroundStyle(Color(hex: 0xD96F7D)).padding(.horizontal, 9).padding(.vertical, 6).background(Color(hex: 0xFFF0F1), in: Capsule())
-                                }
+                                Text(voiceCapture.isPreparing ? "正在准备模型" : voiceCapture.isRecording ? "正在聆听" : voiceCapture.isFinalizing ? "正在整理识别结果" : voiceCapture.hasCapture ? "录音完成" : "中文离线识别")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(Macaron.secondary)
+                                    .contentTransition(.interpolate)
                             }
-                            TextField("说话后，识别文字会显示在这里…", text: $voiceCapture.transcript, axis: .vertical)
-                                .font(.system(size: 14)).foregroundStyle(Macaron.ink).lineLimit(2...4).padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color(hex: 0xF7F9FC), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color(hex: 0xE9EEF5), lineWidth: 1))
-                            HStack(spacing: 12) {
+
+                            if isVoiceTextMode {
+                                TextEditor(text: $voiceCapture.transcript)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Macaron.ink)
+                                    .scrollContentBackground(.hidden)
+                                    .frame(minHeight: 88, maxHeight: 132)
+                                    .padding(10)
+                                    .background(Color(hex: 0xF7F9FC), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color(hex: 0xE9EEF5), lineWidth: 1))
+                                    .transition(.chatCinematic)
+                                HStack {
+                                    Button("返回声纹") {
+                                        withAnimation(ChatMotion.layout) { isVoiceTextMode = false }
+                                    }
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Macaron.secondary)
+                                    Spacer()
+                                    Button(action: sendVoiceTranscriptAsText) {
+                                        Label("发送文字", systemImage: "arrow.up")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 15)
+                                            .padding(.vertical, 10)
+                                            .background(Color(hex: 0x5799D9), in: Capsule())
+                                    }
+                                    .disabled(voiceCapture.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    .opacity(voiceCapture.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
+                                }
+                            } else {
                                 Button {
-                                    if voiceCapture.isRecording { voiceCapture.stop() } else { voiceCapture.start { showMicrophoneAlert = true } }
+                                    if voiceCapture.isRecording {
+                                        _ = voiceCapture.stop()
+                                        withAnimation(ChatMotion.layout) { isVoiceTextMode = true }
+                                    } else if voiceCapture.hasCapture {
+                                        withAnimation(ChatMotion.layout) { isVoiceTextMode = true }
+                                    } else if !voiceCapture.isPreparing && !voiceCapture.isFinalizing {
+                                        voiceCapture.start { showMicrophoneAlert = true }
+                                    }
                                 } label: {
-                                    ZStack {
-                                        Circle().fill(voiceCapture.isRecording ? Color(hex: 0xFCE9EC) : Color(hex: 0xEAF4FD)).frame(width: 48, height: 48)
-                                        Image(systemName: voiceCapture.isRecording ? "stop.fill" : "mic.fill").font(.system(size: 18, weight: .semibold))
-                                            .foregroundStyle(voiceCapture.isRecording ? Color(hex: 0xD96F7D) : Color(hex: 0x4F91D2))
-                                    }
-                                }.buttonStyle(FluidPressButtonStyle()).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(alignment: .center, spacing: 1.5) {
-                                        ForEach(Array(voiceCapture.samples.suffix(28).enumerated()), id: \.offset) { _, value in
-                                            Capsule().fill(voiceCapture.isRecording ? Color(hex: 0x5799D9) : Color(hex: 0xA9C8E8).opacity(0.8))
-                                                .frame(width: 2, height: max(4, CGFloat(value) * 42))
+                                    VStack(spacing: 10) {
+                                        HStack(alignment: .center, spacing: 2) {
+                                            ForEach(Array(voiceCapture.samples.suffix(36).enumerated()), id: \.offset) { _, value in
+                                                Capsule()
+                                                    .fill(voiceCapture.isRecording ? Color(hex: 0x5799D9) : Color(hex: 0xA9C8E8))
+                                                    .frame(width: 3, height: max(5, CGFloat(value) * 54))
+                                            }
                                         }
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 64)
+                                        .clipped()
+                                        Text(voiceCapture.isRecording ? "点击声纹，将刚才说的话转换成文字" : voiceCapture.hasCapture ? "点击声纹查看识别文字" : "正在准备声纹输入…")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(Macaron.secondary)
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .frame(height: 44)
-                                    .clipped()
-                                    Text(voiceCapture.isRecording ? "正在捕捉声音" : voiceCapture.hasCapture ? "点击麦克风重新录制" : "点击麦克风开始说话")
-                                        .font(.system(size: 10, weight: .medium)).foregroundStyle(Macaron.secondary)
-                                }.animation(.linear(duration: 0.045), value: voiceCapture.samples)
-                                Button(action: sendVoiceMessage) {
-                                    Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                                        .frame(width: 42, height: 42).background(Color(hex: 0x5799D9), in: Circle())
-                                }.buttonStyle(FluidPressButtonStyle()).disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
-                                    .opacity(voiceCapture.hasCapture && !voiceCapture.isFinalizing ? 1 : 0.38)
-                            }
-                            HStack {
-                                Button {
-                                    if voiceCapture.isRecording { voiceCapture.stop() }
-                                    voiceCapture.transcript = ""
-                                    withAnimation(ChatMotion.layout) { isVoiceComposer = false }
-                                } label: { Text("取消").font(.system(size: 12, weight: .medium)).foregroundStyle(Macaron.secondary) }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 14)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color(hex: 0xF7F9FC), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color(hex: 0xE9EEF5), lineWidth: 1))
+                                }
                                 .buttonStyle(FluidPressButtonStyle())
-                                Spacer()
-                                Text("录音仅在本机处理").font(.system(size: 10)).foregroundStyle(Macaron.secondary.opacity(0.85))
-                                Spacer()
-                                Button {
-                                    if voiceCapture.isRecording { voiceCapture.stop() }
-                                    voiceCapture.transcript = ""
-                                    voiceCapture.start { showMicrophoneAlert = true }
-                                } label: { Text("重新开始").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2)) }
-                                .buttonStyle(FluidPressButtonStyle()).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                .disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                .animation(.linear(duration: 0.045), value: voiceCapture.samples)
+
+                                HStack {
+                                    Button("取消") { cancelVoiceComposer() }
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(Macaron.secondary)
+                                    Spacer()
+                                    Text("发送时默认只发送声纹")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(Macaron.secondary)
+                                    Spacer()
+                                    Button(action: sendVoiceMessage) {
+                                        Label("发送声纹", systemImage: "arrow.up")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 15)
+                                            .padding(.vertical, 10)
+                                            .background(Color(hex: 0x5799D9), in: Capsule())
+                                    }
+                                    .disabled((!voiceCapture.isRecording && !voiceCapture.hasCapture) || voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                    .opacity((voiceCapture.isRecording || voiceCapture.hasCapture) && !voiceCapture.isPreparing && !voiceCapture.isFinalizing ? 1 : 0.4)
+                                }
                             }
                         }
-                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(hex: 0xE7EDF4), lineWidth: 1))
                         .shadow(color: Color(hex: 0x9EB5CE).opacity(0.10), radius: 14, x: 0, y: 5)
@@ -2915,10 +2983,32 @@ struct ContentView: View {
     }
 
     private func sendVoiceMessage() {
+        if voiceCapture.isRecording { _ = voiceCapture.stop() }
         guard let captured = voiceCapture.consumeCapture() else { return }
-        model.sendVoice(duration: captured.duration, waveform: captured.waveform, text: captured.transcript)
+        model.sendVoice(duration: captured.duration, waveform: captured.waveform, text: "", recognizedText: captured.transcript)
+        voiceCapture.transcript = ""
+        isVoiceTextMode = false
         withAnimation(ChatMotion.layout) { isVoiceComposer = false }
         playMessageSound()
+    }
+
+    private func sendVoiceTranscriptAsText() {
+        let value = voiceCapture.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        model.send(value)
+        _ = voiceCapture.consumeCapture()
+        voiceCapture.transcript = ""
+        isVoiceTextMode = false
+        withAnimation(ChatMotion.layout) { isVoiceComposer = false }
+        playMessageSound()
+    }
+
+    private func cancelVoiceComposer() {
+        if voiceCapture.isRecording { _ = voiceCapture.stop() }
+        if voiceCapture.hasCapture { _ = voiceCapture.consumeCapture() }
+        voiceCapture.transcript = ""
+        isVoiceTextMode = false
+        withAnimation(ChatMotion.layout) { isVoiceComposer = false }
     }
 
     private func sendText() {
@@ -3257,6 +3347,8 @@ private struct MessageRow: View {
     let fontSize: CGFloat
     let outgoingColor: Color
     let onEdit: () -> Void
+    let onVoiceTranscript: () -> Void
+    let onVoiceCustom: () -> Void
     let onDelete: () -> Void
     let onChangeRole: () -> Void
     let onChangeTime: () -> Void
@@ -3275,7 +3367,11 @@ private struct MessageRow: View {
                         Button("编辑文本", systemImage: "pencil", action: onEdit)
                     }
                     if !message.isWithdrawn && message.kind == .voice {
-                        Button(message.text.isEmpty ? "转为文字" : "编辑转换文字", systemImage: "text.alignleft", action: onEdit)
+                        Menu("转换为文字", systemImage: "text.alignleft") {
+                            Button("转换成刚才说的话", systemImage: "waveform") { onVoiceTranscript() }
+                                .disabled((message.voiceTranscript ?? message.text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            Button("自定义文字", systemImage: "pencil") { onVoiceCustom() }
+                        }
                     }
                     if !message.isWithdrawn {
                         Button(isMe ? "显示为对方发送" : "显示为我发送", systemImage: "arrow.left.arrow.right", action: onChangeRole)
