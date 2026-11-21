@@ -1505,7 +1505,7 @@ struct ContentView: View {
            let contact = model.contacts.first(where: { $0.id == walletTargetContactID && $0.isGroup != true }) {
             return contact
         }
-        if let current = model.walletContactForCurrentChat, current.isGroup != true { return current }
+        if let current = model.walletContactForCurrentChat, current.isGroup != true, current.id != model.activePersonaID { return current }
         return model.contacts.first(where: { $0.isGroup != true && $0.id != model.activePersonaID })
     }
 
@@ -2560,14 +2560,6 @@ struct ContentView: View {
 
     private var profileSettingsRows: some View {
         VStack(spacing: 0) {
-            chatBackgroundSettingRow
-            settingsDivider
-            themeSettingRow
-            settingsDivider
-            fontSettingRow
-            settingsDivider
-            soundSettingRow
-            settingsDivider
             voiceModelSettingRow
             settingsDivider
             clearChatSettingRow
