@@ -1888,6 +1888,7 @@ struct ContentView: View {
     @State private var walletTargetContactID: UUID?
     @State private var chatBackgroundImageSelection: PhotosPickerItem?
     @State private var contactPendingDeletion: ChatContact?
+    @State private var groupPendingDeletion: ChatContact?
     @State private var chatHistoryPendingDeletion: ChatContact?
     @State private var showAccountManagement = false
     @State private var showAddContact = false
@@ -2236,6 +2237,24 @@ struct ContentView: View {
                 Button("取消", role: .cancel) { contactPendingDeletion = nil }
             } message: {
                 Text("只移除当前账号的好友关系，不会删除聊天记录、图片或语音，也不会影响其他账号。")
+            }
+            .confirmationDialog(
+                "删除群聊“\(groupPendingDeletion?.name ?? "群聊")”？",
+                isPresented: Binding(
+                    get: { groupPendingDeletion != nil },
+                    set: { if !$0 { groupPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("删除群聊", role: .destructive) {
+                    if let group = groupPendingDeletion {
+                        model.deleteContact(group)
+                    }
+                    groupPendingDeletion = nil
+                }
+                Button("取消", role: .cancel) { groupPendingDeletion = nil }
+            } message: {
+                Text("将群聊从当前账号的通讯录中移除，并删除当前聊天身份下保存的该群聊记录。此操作无法撤销。")
             }
             .confirmationDialog(
                 "删除与“\(chatHistoryPendingDeletion?.name ?? "好友")”的所有聊天记录？",
@@ -2742,6 +2761,13 @@ struct ContentView: View {
                                     editingGroup = group
                                 } label: {
                                     Label("编辑群聊资料", systemImage: "square.and.pencil")
+                                }
+                                if group.ownerAccountID == model.activeAccountID {
+                                    Button(role: .destructive) {
+                                        groupPendingDeletion = group
+                                    } label: {
+                                        Label("删除群聊", systemImage: "trash")
+                                    }
                                 }
                             }
                         }
