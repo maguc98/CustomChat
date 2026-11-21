@@ -1865,6 +1865,7 @@ struct ContentView: View {
     @State private var showMicrophoneAlert = false
     @State private var showFriendProfile = false
     @State private var selectedGroupMember: ChatContact?
+    @State private var editingGroup: ChatContact?
     @State private var showChatSettings = false
     @State private var showVirtualScanner = false
     @State private var showMyQRCode = false
@@ -2158,6 +2159,11 @@ struct ContentView: View {
             .sheet(item: $selectedGroupMember) { member in
                 GroupMemberProfileSheet(member: member, isFriend: model.isFriend(member.id)) {
                     _ = model.addFriend(accountID: member.id)
+                }
+            }
+            .sheet(item: $editingGroup) { group in
+                GroupProfileEditorSheet(group: group) { updated in
+                    model.updateContact(updated)
                 }
             }
             .sheet(item: $imageCropRequest) { request in
@@ -2752,6 +2758,15 @@ struct ContentView: View {
             .padding(.top, 7)
             .padding(.bottom, 7)
             .background(Macaron.card)
+            .contextMenu {
+                if let group = model.currentContact, group.isGroup == true {
+                    Button {
+                        editingGroup = group
+                    } label: {
+                        Label("编辑群聊资料", systemImage: "pencil")
+                    }
+                }
+            }
 
             Rectangle().fill(Macaron.line).frame(height: 1)
 
@@ -6402,6 +6417,68 @@ private struct PersonaSwitcherSheet: View {
             .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(FluidPressButtonStyle())
+    }
+}
+
+private struct GroupProfileEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var group: ChatContact
+    @State private var avatarSelection: PhotosPickerItem?
+    let onSave: (ChatContact) -> Void
+
+    init(group: ChatContact, onSave: @escaping (ChatContact) -> Void) {
+        _group = State(initialValue: group)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("群聊头像") {
+                    HStack(spacing: 16) {
+                        IdentityAvatar(data: group.avatarData, name: group.name, size: 68, tint: Macaron.blue)
+                        PhotosPicker(selection: $avatarSelection, matching: .images) {
+                            Label("更换群聊图片", systemImage: "photo")
+                        }
+                    }
+                }
+                Section("群聊名称") {
+                    TextField("输入群聊名称", text: $group.name)
+                        .textInputAutocapitalization(.never)
+                }
+                Section {
+                    Text("修改后的名称和头像会显示在聊天列表及聊天界面。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                }
+            }
+            .navigationTitle("编辑群聊")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        let cleaned = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !cleaned.isEmpty else { return }
+                        group.name = cleaned
+                        onSave(group)
+                        dismiss()
+                    }
+                    .disabled(group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .task(id: avatarSelection) {
+                guard let avatarSelection,
+                      let data = try? await avatarSelection.loadTransferable(type: Data.self),
+                      UIImage(data: data) != nil else { return }
+                group.avatarData = data
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
     }
 }
 
