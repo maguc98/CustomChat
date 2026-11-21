@@ -936,22 +936,50 @@ private final class ChatModel: ObservableObject {
         let ownerID = personaID ?? mainAccountID
         let key = threadKey(for: contactID, personaID: personaID)
         let legacyKey = "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
-        let stored = threadMessages[key]
-            ?? threadMessages[legacyKey]
-            ?? (personaID == nil ? threadMessages[contactID.uuidString] : nil)
-            ?? []
-        var normalized = stored
+        var normalized: [ChatMessage]
+
+        if let shared = threadMessages[key] {
+            normalized = shared
+        } else {
+            // On the first shared-chat load, merge both accounts' old private
+            // copies so neither side loses messages created before this update.
+            var sources: [([ChatMessage], UUID, UUID)] = []
+            if let ownHistory = threadMessages[legacyKey] {
+                sources.append((ownHistory, ownerID, contactID))
+            } else if personaID == nil, let ownLegacyHistory = threadMessages[contactID.uuidString] {
+                sources.append((ownLegacyHistory, ownerID, contactID))
+            }
+            let ownerFriends = friendIDsByAccount[ownerID.uuidString] ?? []
+            let contactFriends = friendIDsByAccount[contactID.uuidString] ?? []
+            let isMutualFriend = ownerFriends.contains(contactID.uuidString) && contactFriends.contains(ownerID.uuidString)
+            if isMutualFriend {
+                let reverseLegacyKey = "\(contactID.uuidString)::\(ownerID.uuidString)"
+                if let reverseHistory = threadMessages[reverseLegacyKey] {
+                    sources.append((reverseHistory, contactID, ownerID))
+                }
+            }
+            var merged: [UUID: ChatMessage] = [:]
+            for (history, sourceOwnerID, sourceContactID) in sources {
+                for original in history {
+                    var message = original
+                    if message.senderAccountID == nil {
+                        message.senderAccountID = message.role == .me ? sourceOwnerID : sourceContactID
+                    }
+                    merged[message.id] = message
+                }
+            }
+            normalized = Array(merged.values).sorted { $0.time < $1.time }
+        }
+
         for index in normalized.indices {
             if normalized[index].senderAccountID == nil {
                 normalized[index].senderAccountID = normalized[index].role == .me ? ownerID : contactID
             }
             normalized[index].role = normalized[index].senderAccountID == ownerID ? .me : .other
         }
-        if threadMessages[key] == nil, !normalized.isEmpty {
+        if threadMessages[key] != normalized {
             threadMessages[key] = normalized
             persistAllThreads()
-        } else if threadMessages[key] != normalized {
-            threadMessages[key] = normalized
         }
         return normalized
     }
