@@ -788,7 +788,7 @@ private final class ChatModel: ObservableObject {
         }
 
         isSwitchingThread = true
-        messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0)] ?? (activePersonaID == nil ? threadMessages[$0.uuidString] : nil) } ?? []
+        messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0, personaID: activePersonaID)] ?? (activePersonaID == nil ? threadMessages[$0.uuidString] : nil) } ?? []
         isSwitchingThread = false
 
         if let data = defaults.data(forKey: callsByAccountKey),
@@ -1830,6 +1830,7 @@ struct ContentView: View {
                     currentPersonaID: model.activePersonaID,
                     ownName: model.identity.me,
                     ownAvatar: model.identity.meAvatarData,
+                    ownAccountNumber: model.mainAccountNumber,
                     contacts: model.accountDirectory.filter { $0.id != model.mainAccountID }
                 ) { selectedID in
                     model.switchPersona(selectedID)
@@ -2647,7 +2648,7 @@ struct ContentView: View {
                         .animation(ChatMotion.text, value: model.activePersonaName)
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(messageTextColor)
-                    Text(model.activePersonaID == nil ? "当前账号 · 点击切换身份" : "好友账号 · 点击切换身份")
+                    Text(model.activePersonaID == nil ? "主账号 · 点击切换身份" : "独立账号 · 点击切换身份")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
                 }
@@ -3120,11 +3121,6 @@ struct ContentView: View {
     private var momentsFeedItems: [MomentFeedItem] {
         var items = model.activePersonaMoments.map {
             MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0)
-        }
-        if model.activePersonaID != nil {
-            items.append(contentsOf: model.myMoments.map {
-                MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0)
-            })
         }
         for contact in model.friendContacts where contact.isGroup != true && contact.id != model.activeAccountID {
             if contact.id == model.mainAccountID {
@@ -5512,6 +5508,11 @@ private struct VirtualScannerSheet: View {
     @State private var searchText = ""
     @State private var scanProgress: CGFloat = -1
     @State private var didAdd = false
+    @State private var addedAccountIDs: Set<UUID> = []
+
+    private func isAlreadyFriend(_ accountID: UUID) -> Bool {
+        friendIDs.contains(accountID) || addedAccountIDs.contains(accountID)
+    }
 
     private var visibleAccounts: [ChatContact] {
         accounts.filter { $0.id != currentAccountID }.filter {
@@ -5636,11 +5637,14 @@ private struct VirtualScannerSheet: View {
                             AccountQRCodeView(accountID: account.id, accountNumber: account.accountNumber ?? "")
                                 .frame(width: 150, height: 150)
                             Button {
-                                if onAdd(account.id) { didAdd = true }
+                                if onAdd(account.id) {
+                                    addedAccountIDs.insert(account.id)
+                                    didAdd = true
+                                }
                             } label: {
                                 Label(
-                                    didAdd ? "已添加好友" : (friendIDs.contains(account.id) ? "已添加" : "添加到通讯录"),
-                                    systemImage: didAdd || friendIDs.contains(account.id) ? "checkmark" : "person.badge.plus"
+                                    didAdd ? "已添加好友" : (isAlreadyFriend(account.id) ? "已添加" : "添加到通讯录"),
+                                    systemImage: didAdd || isAlreadyFriend(account.id) ? "checkmark" : "person.badge.plus"
                                 )
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(.white)
@@ -5648,8 +5652,8 @@ private struct VirtualScannerSheet: View {
                                 .frame(height: 48)
                                 .background(Color(hex: 0x72B9A0), in: Capsule())
                             }
-                            .disabled(didAdd || friendIDs.contains(account.id))
-                            .opacity(didAdd || friendIDs.contains(account.id) ? 0.65 : 1)
+                            .disabled(didAdd || isAlreadyFriend(account.id))
+                            .opacity(didAdd || isAlreadyFriend(account.id) ? 0.65 : 1)
                         }
                         .padding(18)
                         .frame(maxWidth: .infinity)
@@ -5680,6 +5684,7 @@ private struct PersonaSwitcherSheet: View {
     let currentPersonaID: UUID?
     let ownName: String
     let ownAvatar: Data?
+    let ownAccountNumber: String
     let contacts: [ChatContact]
     let onSelect: (UUID?) -> Void
 
@@ -5687,7 +5692,7 @@ private struct PersonaSwitcherSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 10) {
-                    personaRow(name: ownName, avatar: ownAvatar, subtitle: "自己的账号", isSelected: currentPersonaID == nil) {
+                    personaRow(name: ownName, avatar: ownAvatar, subtitle: "主账号 · 账号编号 \(ownAccountNumber)", isSelected: currentPersonaID == nil) {
                         onSelect(nil)
                         dismiss()
                     }
