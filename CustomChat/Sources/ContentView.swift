@@ -939,16 +939,21 @@ private final class ChatModel: ObservableObject {
     private func loadThread(for contactID: UUID, personaID: UUID?) -> [ChatMessage] {
         let ownerID = personaID ?? mainAccountID
         let key = threadKey(for: contactID, personaID: personaID)
-        let legacyKey = "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
-        let hadSharedThread = threadMessages[key] != nil
-        var normalized: [ChatMessage]
+        let isGroupThread = contacts.contains(where: { $0.id == contactID && $0.isGroup == true })
+        let group = isGroupThread ? contacts.first(where: { $0.id == contactID && $0.isGroup == true }) : nil
 
-        if let shared = threadMessages[key] {
-            normalized = shared
+        // Always merge legacy group copies, even when a shared copy already exists.
+        // This repairs partial migrations from earlier builds without discarding newer messages.
+        var sources: [([ChatMessage], UUID, UUID)] = []
+        if isGroupThread {
+            let suffix = "::\(contactID.uuidString)"
+            for (legacyKey, history) in threadMessages where legacyKey != key && legacyKey.hasSuffix(suffix) {
+                let ownerPart = String(legacyKey.dropLast(suffix.count))
+                let sourceOwnerID = ownerPart == "self" ? mainAccountID : (UUID(uuidString: ownerPart) ?? ownerID)
+                sources.append((history, sourceOwnerID, contactID))
+            }
         } else {
-            // On the first shared-chat load, merge both accounts' old private
-            // copies so neither side loses messages created before this update.
-            var sources: [([ChatMessage], UUID, UUID)] = []
+            let legacyKey = "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
             if let ownHistory = threadMessages[legacyKey] {
                 sources.append((ownHistory, ownerID, contactID))
             } else if personaID == nil, let ownLegacyHistory = threadMessages[contactID.uuidString] {
@@ -963,33 +968,51 @@ private final class ChatModel: ObservableObject {
                     sources.append((reverseHistory, contactID, ownerID))
                 }
             }
-            var merged: [UUID: ChatMessage] = [:]
-            for (history, sourceOwnerID, sourceContactID) in sources {
-                for original in history {
-                    var message = original
-                    if message.senderAccountID == nil {
-                        message.senderAccountID = message.role == .me ? sourceOwnerID : sourceContactID
-                    }
-                    merged[message.id] = message
-                }
-            }
-            normalized = Array(merged.values).sorted { $0.time < $1.time }
         }
 
-        let group = contacts.first(where: { $0.id == contactID && $0.isGroup == true })
+        var merged: [UUID: ChatMessage] = [:]
+        for (history, sourceOwnerID, _) in sources {
+            for original in history {
+                var message = original
+                if message.senderAccountID == nil {
+                    if isGroupThread, let senderName = message.senderName,
+                       let matched = group.flatMap({ groupMembers($0).first(where: { $0.name == senderName }) }) {
+                        message.senderAccountID = matched.id
+                    } else if isGroupThread, message.role == .other,
+                              let fallbackSender = group.flatMap({ groupMembers($0).first(where: { $0.id != sourceOwnerID }) }) {
+                        message.senderAccountID = fallbackSender.id
+                    } else {
+                        message.senderAccountID = sourceOwnerID
+                    }
+                }
+                merged[message.id] = message
+            }
+        }
+
+        // Shared copy wins on duplicate IDs because it may contain later edits,
+        // withdrawals, payment state, or corrected sender metadata.
+        for original in threadMessages[key] ?? [] {
+            var message = original
+            if message.senderAccountID == nil {
+                if isGroupThread, let senderName = message.senderName,
+                   let matched = group.flatMap({ groupMembers($0).first(where: { $0.name == senderName }) }) {
+                    message.senderAccountID = matched.id
+                } else {
+                    message.senderAccountID = message.role == .me ? ownerID : groupMembers(group ?? ChatContact(name: "群聊")).first(where: { $0.id != ownerID })?.id ?? ownerID
+                }
+            }
+            merged[message.id] = message
+        }
+
+        var normalized = Array(merged.values).sorted { $0.time < $1.time }
         for index in normalized.indices {
             if normalized[index].senderAccountID == nil {
-                if let senderName = normalized[index].senderName,
-                   let matched = group.flatMap({ groupMembers($0).first(where: { $0.name == senderName }) }) {
-                    normalized[index].senderAccountID = matched.id
-                } else {
-                    normalized[index].senderAccountID = normalized[index].role == .me ? ownerID : contactID
-                }
+                normalized[index].senderAccountID = normalized[index].role == .me ? ownerID : contactID
             }
             normalized[index].role = normalized[index].senderAccountID == ownerID ? .me : .other
         }
         threadMessages[key] = normalized
-        if !hadSharedThread { persistAllThreads() }
+        persistAllThreads()
         return normalized
     }
 
@@ -2771,48 +2794,54 @@ struct ContentView: View {
 
     private var composer: some View {
         VStack(spacing: 11) {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 Text("发送身份")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Macaron.secondary)
-                    .padding(.trailing, 1)
-                if model.currentContact?.isGroup == true {
-                    Button {
-                        withAnimation(ChatMotion.layout) { model.selectGroupSender(nil) }
-                    } label: {
-                        senderIdentityChip(name: model.activePersonaName, selected: model.activeGroupSenderID == nil, tint: accentColor)
-                    }
-                    .buttonStyle(FluidPressButtonStyle())
-                    ForEach(model.currentContact.map { model.groupMembers($0).filter { $0.id != model.activeAccountID } } ?? []) { member in
-                        Button {
-                            if model.isFriend(member.id) {
-                                withAnimation(ChatMotion.layout) { model.selectGroupSender(member.id) }
-                            } else {
-                                selectedGroupMember = member
+                    .fixedSize()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        if model.currentContact?.isGroup == true {
+                            Button {
+                                withAnimation(ChatMotion.layout) { model.selectGroupSender(nil) }
+                            } label: {
+                                senderIdentityChip(name: model.activePersonaName, selected: model.activeGroupSenderID == nil, tint: accentColor)
                             }
-                        } label: {
-                            HStack(spacing: 5) {
-                                senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
-                                if !model.isFriend(member.id) {
-                                    Text("非好友")
-                                        .font(.system(size: 9, weight: .medium))
-                                        .foregroundStyle(Color(hex: 0xD18A55))
+                            .buttonStyle(FluidPressButtonStyle())
+                            ForEach(model.currentContact.map { model.groupMembers($0).filter { $0.id != model.activeAccountID } } ?? []) { member in
+                                Button {
+                                    if model.isFriend(member.id) {
+                                        withAnimation(ChatMotion.layout) { model.selectGroupSender(member.id) }
+                                    } else {
+                                        selectedGroupMember = member
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
+                                        if !model.isFriend(member.id) {
+                                            Text("非好友")
+                                                .font(.system(size: 9, weight: .medium))
+                                                .foregroundStyle(Color(hex: 0xD18A55))
+                                        }
+                                    }
                                 }
+                                .buttonStyle(FluidPressButtonStyle())
+                            }
+                        } else {
+                            ForEach(ChatRole.allCases, id: \.self) { role in
+                                Button {
+                                    withAnimation(ChatMotion.layout) { model.activeRole = role }
+                                } label: {
+                                    senderIdentityChip(name: model.name(for: role), selected: model.activeRole == role, tint: role == .me ? accentColor : Macaron.pink)
+                                }
+                                .buttonStyle(FluidPressButtonStyle())
                             }
                         }
-                        .buttonStyle(FluidPressButtonStyle())
                     }
-                } else {
-                    ForEach(ChatRole.allCases, id: \.self) { role in
-                        Button {
-                            withAnimation(ChatMotion.layout) { model.activeRole = role }
-                        } label: {
-                            senderIdentityChip(name: model.name(for: role), selected: model.activeRole == role, tint: role == .me ? accentColor : Macaron.pink)
-                        }
-                        .buttonStyle(FluidPressButtonStyle())
-                    }
+                    .padding(.vertical, 1)
                 }
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity)
+                .clipped()
                 Button { messageFocused = false } label: {
                     Image(systemName: "keyboard.chevron.compact.down")
                         .font(.system(size: 17, weight: .medium))
