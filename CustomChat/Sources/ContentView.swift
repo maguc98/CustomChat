@@ -2848,21 +2848,39 @@ struct ContentView: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        .clipShape(
+                            UnevenRoundedRectangle(
+                                cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
+                                style: .continuous
+                            )
+                        )
                 } else {
                     conversationBackground
-                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        .clipShape(
+                            UnevenRoundedRectangle(
+                                cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
+                                style: .continuous
+                            )
+                        )
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .clipShape(
+                UnevenRoundedRectangle(
+                    cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
+                    style: .continuous
+                )
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                UnevenRoundedRectangle(
+                    cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
+                    style: .continuous
+                )
                     .stroke(Color.white.opacity(0.9), lineWidth: 1)
                     .allowsHitTesting(false)
             )
             .padding(.horizontal, 12)
             .padding(.top, 6)
-            .padding(.bottom, 6)
+            .padding(.bottom, 0)
 
             composer
                 .transition(.chatCinematic)
