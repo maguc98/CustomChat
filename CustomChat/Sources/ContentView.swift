@@ -587,6 +587,9 @@ struct MomentPost: Identifiable, Codable {
     var date: Date
     var mediaData: Data?
     var mediaType: String?
+    var isLiked: Bool?
+    var comments: [MomentComment]?
+    var shareCount: Int?
 
     init(text: String, date: Date = .now, mediaData: Data? = nil, mediaType: String? = nil) {
         id = UUID()
@@ -594,6 +597,9 @@ struct MomentPost: Identifiable, Codable {
         self.date = date
         self.mediaData = mediaData
         self.mediaType = mediaType
+        isLiked = false
+        comments = []
+        shareCount = 0
     }
 }
 
@@ -2263,60 +2269,96 @@ struct ContentView: View {
 
     private var profileSettingsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Button {
-                withAnimation(ChatMotion.layout) { isProfileSettingsExpanded.toggle() }
-            } label: {
-                HStack {
-                    Text("设置")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Macaron.secondary)
-                        .rotationEffect(.degrees(isProfileSettingsExpanded ? 180 : 0))
-                }
-                .contentShape(Rectangle())
-                .padding(.horizontal, 15)
-                .padding(.top, 12)
-                .padding(.bottom, isProfileSettingsExpanded ? 0 : 12)
-            }
-            .buttonStyle(FluidPressButtonStyle())
+            profileSettingsHeader
             if isProfileSettingsExpanded {
-                VStack(spacing: 0) {
-                    SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
-                        showBackgroundPicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    SettingsRow(symbol: "paintpalette", title: "主题色", value: themeOption, tint: Color(hex: 0xC18AD8)) {
-                        showThemePicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    SettingsRow(symbol: "textformat.size", title: "字体大小", value: fontOption, tint: Color(hex: 0x83B9EF)) {
-                        showFontPicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    SettingsRow(symbol: "bell", title: "消息提示音", value: soundOption, tint: Color(hex: 0xE6A5C7)) {
-                        showSoundPicker = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    SettingsRow(symbol: "waveform.badge.mic", title: "语音模型下载", value: voiceCapture.isModelInstalled ? "已就绪" : "未下载", tint: Color(hex: 0x83B9EF)) {
-                        voiceCapture.refreshModelStatus()
-                        showChatSettings = true
-                    }
-                    Divider().overlay(Macaron.line).padding(.leading, 54)
-                    Button { showClearConfirmation = true } label: {
-                        SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
-                    }
-                }
-                .padding(.horizontal, 15)
-                .padding(.bottom, 8)
-                .transition(.chatCinematic)
+                profileSettingsRows
             }
         }
         .padding(.vertical, 4)
         .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .padding(.horizontal, 18)
+    }
+
+    private var profileSettingsHeader: some View {
+        Button {
+            withAnimation(ChatMotion.layout) { isProfileSettingsExpanded.toggle() }
+        } label: {
+            HStack {
+                Text("设置")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Macaron.ink)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Macaron.secondary)
+                    .rotationEffect(.degrees(isProfileSettingsExpanded ? 180 : 0))
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 15)
+            .padding(.top, 12)
+            .padding(.bottom, isProfileSettingsExpanded ? 0 : 12)
+        }
+        .buttonStyle(FluidPressButtonStyle())
+    }
+
+    private var profileSettingsRows: some View {
+        VStack(spacing: 0) {
+            chatBackgroundSettingRow
+            settingsDivider
+            themeSettingRow
+            settingsDivider
+            fontSettingRow
+            settingsDivider
+            soundSettingRow
+            settingsDivider
+            voiceModelSettingRow
+            settingsDivider
+            clearChatSettingRow
+        }
+        .padding(.horizontal, 15)
+        .padding(.bottom, 8)
+        .transition(.chatCinematic)
+    }
+
+    private var settingsDivider: some View {
+        Divider().overlay(Macaron.line).padding(.leading, 54)
+    }
+
+    private var chatBackgroundSettingRow: some View {
+        SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
+            showBackgroundPicker = true
+        }
+    }
+
+    private var themeSettingRow: some View {
+        SettingsRow(symbol: "paintpalette", title: "主题色", value: themeOption, tint: Color(hex: 0xC18AD8)) {
+            showThemePicker = true
+        }
+    }
+
+    private var fontSettingRow: some View {
+        SettingsRow(symbol: "textformat.size", title: "字体大小", value: fontOption, tint: Color(hex: 0x83B9EF)) {
+            showFontPicker = true
+        }
+    }
+
+    private var soundSettingRow: some View {
+        SettingsRow(symbol: "bell", title: "消息提示音", value: soundOption, tint: Color(hex: 0xE6A5C7)) {
+            showSoundPicker = true
+        }
+    }
+
+    private var voiceModelSettingRow: some View {
+        SettingsRow(symbol: "waveform.badge.mic", title: "语音模型下载", value: voiceCapture.isModelInstalled ? "已就绪" : "未下载", tint: Color(hex: 0x83B9EF)) {
+            voiceCapture.refreshModelStatus()
+            showChatSettings = true
+        }
+    }
+
+    private var clearChatSettingRow: some View {
+        Button { showClearConfirmation = true } label: {
+            SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
+        }
     }
 
     private var myMomentsProfileSection: some View {
