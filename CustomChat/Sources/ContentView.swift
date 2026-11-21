@@ -2,6 +2,7 @@ import SwiftUI
 import CoreTransferable
 import PhotosUI
 import UIKit
+import CoreImage
 import AVKit
 import UniformTypeIdentifiers
 import AudioToolbox
@@ -641,9 +642,11 @@ struct ChatContact: Identifiable, Codable {
     var memberIDs: [UUID]?
     var walletBalance: Double?
     var appearance: PersonaAppearance?
+    var accountNumber: String?
+    var ownerAccountID: UUID?
 
     init(id: UUID = UUID(), name: String, avatarData: Data? = nil,
-         bio: String = "分享生活，记录日常。", notes: String = "", moments: [MomentPost] = [], isGroup: Bool = false, memberIDs: [UUID] = [], walletBalance: Double? = 1000, appearance: PersonaAppearance? = PersonaAppearance()) {
+         bio: String = "分享生活，记录日常。", notes: String = "", moments: [MomentPost] = [], isGroup: Bool = false, memberIDs: [UUID] = [], walletBalance: Double? = 1000, appearance: PersonaAppearance? = PersonaAppearance(), accountNumber: String? = nil, ownerAccountID: UUID? = nil) {
         self.id = id
         self.name = name
         self.avatarData = avatarData
@@ -654,6 +657,8 @@ struct ChatContact: Identifiable, Codable {
         self.memberIDs = memberIDs
         self.walletBalance = walletBalance
         self.appearance = appearance
+        self.accountNumber = accountNumber
+        self.ownerAccountID = ownerAccountID
     }
 }
 
@@ -671,6 +676,7 @@ private final class ChatModel: ObservableObject {
     @Published var activePersonaID: UUID? {
         didSet { UserDefaults.standard.set(activePersonaID?.uuidString, forKey: "customchat.activePersona.v1") }
     }
+    @Published private var friendIDsByAccount: [String: Set<String>] = [:] { didSet { persistFriendships() } }
     @Published var myMoments: [MomentPost] = [] { didSet { persistMyMoments() } }
     @Published var walletBalance: Double = 1000 {
         didSet { UserDefaults.standard.set(walletBalance, forKey: walletKey) }
@@ -680,9 +686,16 @@ private final class ChatModel: ObservableObject {
     private let identityKey = "customchat.identity.v1"
     private let callsKey = "customchat.calls.v1"
     private let contactsKey = "customchat.contacts.v1"
+    private let friendshipsKey = "customchat.friendships.v1"
+    private let callsByAccountKey = "customchat.calls.byAccount.v1"
     private let myMomentsKey = "customchat.myMoments.v1"
     private let walletKey = "customchat.wallet.balance.v1"
     private let otherWalletKey = "customchat.wallet.other.balance.v1"
+    private let mainAccountIDKey = "customchat.mainAccount.id.v1"
+    private let mainAccountNumberKey = "customchat.mainAccount.number.v1"
+    private(set) var mainAccountID: UUID = UUID()
+    private(set) var mainAccountNumber: String = ""
+    private var callsByAccount: [String: [CallRecord]] = [:]
     private var threadMessages: [String: [ChatMessage]] = [:]
     private var isSwitchingThread = false
 
@@ -697,8 +710,17 @@ private final class ChatModel: ObservableObject {
             identity = value
         }
 
-        let legacyOtherBalance = UserDefaults.standard.object(forKey: otherWalletKey) as? Double
-        if let data = UserDefaults.standard.data(forKey: contactsKey),
+        let defaults = UserDefaults.standard
+        if let storedID = defaults.string(forKey: mainAccountIDKey), let value = UUID(uuidString: storedID) {
+            mainAccountID = value
+        } else {
+            mainAccountID = UUID()
+            defaults.set(mainAccountID.uuidString, forKey: mainAccountIDKey)
+        }
+        mainAccountNumber = defaults.string(forKey: mainAccountNumberKey) ?? String(Int.random(in: 10_000_000...99_999_999))
+
+        let legacyOtherBalance = defaults.object(forKey: otherWalletKey) as? Double
+        if let data = defaults.data(forKey: contactsKey),
            let value = try? JSONDecoder().decode([ChatContact].self, from: data),
            !value.isEmpty {
             var restoredContacts = value
@@ -713,12 +735,47 @@ private final class ChatModel: ObservableObject {
         } else {
             contacts = [ChatContact(name: identity.other, avatarData: identity.otherAvatarData, walletBalance: max(0, legacyOtherBalance ?? 1000))]
         }
-        selectedContactID = contacts.first(where: { $0.id != activePersonaID })?.id ?? contacts.first?.id
-        if let storedPersona = UserDefaults.standard.string(forKey: "customchat.activePersona.v1"),
+
+        if let storedPersona = defaults.string(forKey: "customchat.activePersona.v1"),
            let personaID = UUID(uuidString: storedPersona),
            contacts.contains(where: { $0.id == personaID && $0.isGroup != true }) {
             activePersonaID = personaID
         }
+
+        var normalizedContacts = contacts
+        var usedNumbers = Set(normalizedContacts.compactMap { $0.accountNumber })
+        if usedNumbers.contains(mainAccountNumber) {
+            mainAccountNumber = Self.generateAccountNumber(avoiding: usedNumbers)
+        }
+        for index in normalizedContacts.indices {
+            if normalizedContacts[index].isGroup == true {
+                if normalizedContacts[index].ownerAccountID == nil {
+                    normalizedContacts[index].ownerAccountID = mainAccountID
+                }
+            } else if normalizedContacts[index].accountNumber == nil {
+                let number = Self.generateAccountNumber(avoiding: usedNumbers.union([mainAccountNumber]))
+                normalizedContacts[index].accountNumber = number
+                usedNumbers.insert(number)
+            }
+        }
+        contacts = normalizedContacts
+        defaults.set(mainAccountNumber, forKey: mainAccountNumberKey)
+
+        if let data = defaults.data(forKey: friendshipsKey),
+           let saved = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            friendIDsByAccount = saved.mapValues { Set($0) }
+        } else {
+            // Migrate the old global list to the original account only.
+            // Each virtual account starts with the original account, not every other contact.
+            var migrated: [String: Set<String>] = [:]
+            let people = contacts.filter { $0.isGroup != true }
+            migrated[mainAccountID.uuidString] = Set(people.map { $0.id.uuidString })
+            for person in people {
+                migrated[person.id.uuidString, default: []].insert(mainAccountID.uuidString)
+            }
+            friendIDsByAccount = migrated
+        }
+        selectedContactID = friendContacts.first?.id
 
         if let data = UserDefaults.standard.data(forKey: threadsKey),
            let value = try? JSONDecoder().decode([String: [ChatMessage]].self, from: data) {
@@ -734,9 +791,14 @@ private final class ChatModel: ObservableObject {
         messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0)] ?? (activePersonaID == nil ? threadMessages[$0.uuidString] : nil) } ?? []
         isSwitchingThread = false
 
-        if let data = UserDefaults.standard.data(forKey: callsKey),
-           let value = try? JSONDecoder().decode([CallRecord].self, from: data) {
-            calls = value
+        if let data = defaults.data(forKey: callsByAccountKey),
+           let value = try? JSONDecoder().decode([String: [CallRecord]].self, from: data) {
+            callsByAccount = value
+            calls = callsByAccount[activeAccountID.uuidString] ?? []
+        } else if let data = defaults.data(forKey: callsKey),
+                  let value = try? JSONDecoder().decode([CallRecord].self, from: data) {
+            callsByAccount[mainAccountID.uuidString] = value
+            calls = activePersonaID == nil ? value : []
         }
         if let data = UserDefaults.standard.data(forKey: myMomentsKey),
            let value = try? JSONDecoder().decode([MomentPost].self, from: data) {
@@ -749,8 +811,52 @@ private final class ChatModel: ObservableObject {
         persistCurrentThread()
     }
 
+    var activeAccountID: UUID { activePersonaID ?? mainAccountID }
+
+    var mainIdentityContact: ChatContact {
+        ChatContact(id: mainAccountID, name: identity.me, avatarData: identity.meAvatarData,
+                    bio: "这是我的主账号。", accountNumber: mainAccountNumber)
+    }
+
+    var activeAccountContact: ChatContact {
+        activePersonaContact ?? mainIdentityContact
+    }
+
+    var activeAccountNumber: String {
+        activeAccountContact.accountNumber ?? mainAccountNumber
+    }
+
+    var accountDirectory: [ChatContact] {
+        [mainIdentityContact] + contacts.filter { $0.isGroup != true }
+    }
+
+    var friendAccountIDs: Set<UUID> {
+        Set((friendIDsByAccount[activeAccountID.uuidString] ?? []).compactMap(UUID.init(uuidString:)))
+    }
+
+    var friendContacts: [ChatContact] {
+        let ids = friendIDsByAccount[activeAccountID.uuidString] ?? []
+        var result = contacts.filter { contact in
+            if contact.isGroup == true { return contact.ownerAccountID == activeAccountID }
+            return ids.contains(contact.id.uuidString)
+        }
+        if ids.contains(mainAccountID.uuidString) { result.append(mainIdentityContact) }
+        return result
+    }
+
+    private func accountContact(with id: UUID) -> ChatContact? {
+        if id == mainAccountID { return mainIdentityContact }
+        return contacts.first(where: { $0.id == id && $0.isGroup != true })
+    }
+
     var currentContact: ChatContact? {
-        contacts.first(where: { $0.id == selectedContactID }) ?? contacts.first
+        guard let selectedContactID else { return nil }
+        if let group = contacts.first(where: { $0.id == selectedContactID && $0.isGroup == true && $0.ownerAccountID == activeAccountID }) {
+            return group
+        }
+        guard friendAccountIDs.contains(selectedContactID),
+              let contact = accountContact(with: selectedContactID) else { return nil }
+        return contact
     }
 
     var activePersonaContact: ChatContact? {
@@ -780,15 +886,17 @@ private final class ChatModel: ObservableObject {
         guard id == nil || contacts.contains(where: { $0.id == id && $0.isGroup != true }) else { return }
         guard activePersonaID != id else { return }
         persistCurrentThread()
+        saveCalls()
         withAnimation(ChatMotion.layout) {
             activePersonaID = id
-            if selectedContactID == id || selectedContactID == nil {
-                selectedContactID = contacts.first(where: { $0.id != id })?.id
-            }
+            selectedContactID = friendContacts.first?.id
             activeRole = .me
             activeGroupSenderID = nil
             isSwitchingThread = true
-            messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0, personaID: id)] ?? (id == nil ? threadMessages[$0.uuidString] : nil) } ?? []
+            messages = selectedContactID.flatMap {
+                threadMessages[threadKey(for: $0, personaID: id)] ?? (id == nil ? threadMessages[$0.uuidString] : nil)
+            } ?? []
+            calls = callsByAccount[id?.uuidString ?? mainAccountID.uuidString] ?? []
             isSwitchingThread = false
         }
     }
@@ -865,22 +973,46 @@ private final class ChatModel: ObservableObject {
     }
 
     func walletBalance(for contact: ChatContact?) -> Double {
-        contact?.walletBalance ?? 1000
+        guard let contact else { return 1000 }
+        if contact.id == mainAccountID { return walletBalance }
+        return contact.walletBalance ?? 1000
     }
 
     func updateWalletBalance(_ value: Double, contactID: UUID?) {
-        guard let contactID,
-              let index = contacts.firstIndex(where: { $0.id == contactID }) else { return }
+        guard let contactID else { return }
+        if contactID == mainAccountID {
+            walletBalance = max(0, value)
+            return
+        }
+        guard let index = contacts.firstIndex(where: { $0.id == contactID }) else { return }
         contacts[index].walletBalance = max(0, value)
     }
 
     func selectContact(_ id: UUID) {
-        guard selectedContactID != id else { return }
+        guard friendContacts.contains(where: { $0.id == id }), selectedContactID != id else { return }
         persistCurrentThread()
         selectedContactID = id
         isSwitchingThread = true
-        messages = threadMessages[threadKey(for: id)] ?? (activePersonaID == nil ? threadMessages[id.uuidString] : nil) ?? []
+        messages = threadMessages[threadKey(for: id, personaID: activePersonaID)]
+            ?? (activePersonaID == nil ? threadMessages[id.uuidString] : nil) ?? []
         isSwitchingThread = false
+    }
+
+    @discardableResult
+    func addFriend(accountID: UUID) -> Bool {
+        guard accountID != activeAccountID, accountContact(with: accountID) != nil else { return false }
+        let activeKey = activeAccountID.uuidString
+        let targetKey = accountID.uuidString
+        var updated = friendIDsByAccount
+        var activeFriends = updated[activeKey] ?? []
+        guard !activeFriends.contains(targetKey) else { return false }
+        activeFriends.insert(targetKey)
+        updated[activeKey] = activeFriends
+        var targetFriends = updated[targetKey] ?? []
+        targetFriends.insert(activeKey)
+        updated[targetKey] = targetFriends
+        friendIDsByAccount = updated
+        return true
     }
 
     @discardableResult
@@ -889,23 +1021,31 @@ private final class ChatModel: ObservableObject {
         let contact = ChatContact(
             name: cleanedName.isEmpty ? "新好友" : cleanedName,
             avatarData: avatarData,
-            bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "分享生活，记录日常。" : bio
+            bio: bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "分享生活，记录日常。" : bio,
+            accountNumber: Self.generateAccountNumber(avoiding: Set(contacts.compactMap { $0.accountNumber }).union([mainAccountNumber]))
         )
         contacts.append(contact)
+        _ = addFriend(accountID: contact.id)
         selectContact(contact.id)
         return contact.id
     }
 
     func addGroup(name: String, memberIDs: [UUID]) -> UUID {
-        let members = contacts.filter { memberIDs.contains($0.id) && $0.isGroup != true }
-        let group = ChatContact(name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "群聊" : name, bio: "\(members.count) 位好友的群聊", isGroup: true, memberIDs: members.map(\.id))
+        let members = friendContacts.filter { memberIDs.contains($0.id) && $0.isGroup != true }
+        let group = ChatContact(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "群聊" : name,
+            bio: "\(members.count) 位好友的群聊",
+            isGroup: true,
+            memberIDs: members.map(\.id),
+            ownerAccountID: activeAccountID
+        )
         contacts.insert(group, at: 0)
         selectContact(group.id)
         return group.id
     }
 
     func groupMembers(_ contact: ChatContact) -> [ChatContact] {
-        (contact.memberIDs ?? []).compactMap { id in contacts.first(where: { $0.id == id }) }
+        (contact.memberIDs ?? []).compactMap { id in accountContact(with: id) }
     }
 
     func selectGroupSender(_ memberID: UUID?) {
@@ -915,37 +1055,48 @@ private final class ChatModel: ObservableObject {
 
     private var outgoingSenderName: String? {
         guard currentContact?.isGroup == true, let id = activeGroupSenderID,
-              let member = contacts.first(where: { $0.id == id }) else { return nil }
+              let member = accountContact(with: id) else { return nil }
         return member.name
     }
 
     private var outgoingSenderAvatar: Data? {
         guard currentContact?.isGroup == true, let id = activeGroupSenderID else { return nil }
-        return contacts.first(where: { $0.id == id })?.avatarData
+        return accountContact(with: id)?.avatarData
     }
 
     func updateContact(_ updated: ChatContact) {
+        if updated.id == mainAccountID {
+            var changed = identity
+            changed.me = updated.name
+            changed.meAvatarData = updated.avatarData
+            identity = changed
+            return
+        }
         guard let index = contacts.firstIndex(where: { $0.id == updated.id }) else { return }
         contacts[index] = updated
     }
 
     func deleteContact(_ contact: ChatContact) {
-        guard contacts.contains(where: { $0.id == contact.id }) else { return }
-        threadMessages.removeValue(forKey: threadKey(for: contact.id))
-        threadMessages.removeValue(forKey: contact.id.uuidString)
-        contacts.removeAll { $0.id == contact.id }
+        if contact.isGroup == true {
+            guard contact.ownerAccountID == activeAccountID else { return }
+            contacts.removeAll { $0.id == contact.id }
+        } else {
+            var ids = friendIDsByAccount[activeAccountID.uuidString] ?? []
+            ids.remove(contact.id.uuidString)
+            friendIDsByAccount[activeAccountID.uuidString] = ids
+        }
+        threadMessages.removeValue(forKey: threadKey(for: contact.id, personaID: activePersonaID))
         if selectedContactID == contact.id {
-            selectedContactID = contacts.first?.id
+            selectedContactID = friendContacts.first?.id
             isSwitchingThread = true
-            messages = selectedContactID.flatMap { threadMessages[$0.uuidString] } ?? []
+            messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0, personaID: activePersonaID)] } ?? []
             isSwitchingThread = false
         }
-        persistContacts()
         UserDefaults.standard.set(try? JSONEncoder().encode(threadMessages), forKey: threadsKey)
     }
 
     func preview(for contact: ChatContact) -> String {
-        let last = threadMessages[threadKey(for: contact.id)]?.last ?? (activePersonaID == nil ? threadMessages[contact.id.uuidString]?.last : nil)
+        let last = threadMessages[threadKey(for: contact.id, personaID: activePersonaID)]?.last ?? (activePersonaID == nil ? threadMessages[contact.id.uuidString]?.last : nil)
         guard let last else { return "开始你们的第一段对话" }
         if last.isWithdrawn { return "撤回了一条消息" }
         switch last.kind {
@@ -1124,9 +1275,15 @@ private final class ChatModel: ObservableObject {
         UserDefaults.standard.set(data, forKey: contactsKey)
     }
 
+    private func persistFriendships() {
+        let stored = friendIDsByAccount.mapValues { Array($0).sorted() }
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        UserDefaults.standard.set(data, forKey: friendshipsKey)
+    }
+
     private func persistCurrentThread() {
         guard !isSwitchingThread, let selectedContactID else { return }
-        threadMessages[threadKey(for: selectedContactID)] = messages
+        threadMessages[threadKey(for: selectedContactID, personaID: activePersonaID)] = messages
         if let data = try? JSONEncoder().encode(threadMessages) {
             UserDefaults.standard.set(data, forKey: threadsKey)
         }
@@ -1137,9 +1294,21 @@ private final class ChatModel: ObservableObject {
     }
 
     private func saveCalls() {
-        if let data = try? JSONEncoder().encode(calls) {
-            UserDefaults.standard.set(data, forKey: callsKey)
+        callsByAccount[activeAccountID.uuidString] = calls
+        if let data = try? JSONEncoder().encode(callsByAccount) {
+            UserDefaults.standard.set(data, forKey: callsByAccountKey)
         }
+        if activePersonaID == nil, let legacyData = try? JSONEncoder().encode(calls) {
+            UserDefaults.standard.set(legacyData, forKey: callsKey)
+        }
+    }
+
+    private static func generateAccountNumber(avoiding used: Set<String>) -> String {
+        var candidate = String(Int.random(in: 10_000_000...99_999_999))
+        while used.contains(candidate) {
+            candidate = String(Int.random(in: 10_000_000...99_999_999))
+        }
+        return candidate
     }
 
     private func persistMyMoments() {
@@ -1426,6 +1595,8 @@ struct ContentView: View {
     @State private var showMicrophoneAlert = false
     @State private var showFriendProfile = false
     @State private var showChatSettings = false
+    @State private var showVirtualScanner = false
+    @State private var showMyQRCode = false
     @FocusState private var messageFocused: Bool
     @State private var showBalanceEditor = false
     @State private var showInsufficientBalance = false
@@ -1527,11 +1698,11 @@ struct ContentView: View {
 
     private var walletTargetContact: ChatContact? {
         if let walletTargetContactID,
-           let contact = model.contacts.first(where: { $0.id == walletTargetContactID && $0.isGroup != true }) {
+           let contact = model.friendContacts.first(where: { $0.id == walletTargetContactID && $0.isGroup != true }) {
             return contact
         }
         if let current = model.walletContactForCurrentChat, current.isGroup != true, current.id != model.activePersonaID { return current }
-        return model.contacts.first(where: { $0.isGroup != true && $0.id != model.activePersonaID })
+        return model.friendContacts.first(where: { $0.isGroup != true && $0.id != model.activePersonaID })
     }
 
     private var messageFontSize: CGFloat {
@@ -1585,7 +1756,7 @@ struct ContentView: View {
         )) { target in
             MomentCommentsSheet(
                 comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
-                authorOptions: ([model.activePersonaName, model.identity.me] + model.contacts.filter { $0.isGroup != true }.map { $0.name }).reduce(into: [String]()) { result, name in
+                authorOptions: ([model.activePersonaName, model.identity.me] + model.friendContacts.filter { $0.isGroup != true }.map { $0.name }).reduce(into: [String]()) { result, name in
                     if !result.contains(name) { result.append(name) }
                 },
                 onSend: { comment in
@@ -1659,15 +1830,26 @@ struct ContentView: View {
                     currentPersonaID: model.activePersonaID,
                     ownName: model.identity.me,
                     ownAvatar: model.identity.meAvatarData,
-                    contacts: model.contacts.filter { $0.isGroup != true }
+                    contacts: model.accountDirectory.filter { $0.id != model.mainAccountID }
                 ) { selectedID in
                     model.switchPersona(selectedID)
                     walletTargetContactID = nil
                 }
             }
+            .sheet(isPresented: $showVirtualScanner) {
+                VirtualScannerSheet(
+                    accounts: model.accountDirectory,
+                    currentAccountID: model.activeAccountID,
+                    friendIDs: model.friendAccountIDs,
+                    onAdd: { model.addFriend(accountID: $0) }
+                )
+            }
+            .sheet(isPresented: $showMyQRCode) {
+                AccountQRCodeSheet(account: model.activeAccountContact)
+            }
             .sheet(isPresented: $showChatSettings) { chatSettingsSheet }
             .sheet(isPresented: $showCreateGroup) {
-                CreateGroupSheet(contacts: model.contacts.filter { $0.isGroup != true }) { name, ids in
+                CreateGroupSheet(contacts: model.friendContacts.filter { $0.isGroup != true }) { name, ids in
                     let id = model.addGroup(name: name, memberIDs: ids)
                     model.selectContact(id)
                     showConversation = true
@@ -1709,7 +1891,7 @@ struct ContentView: View {
                 ),
                 titleVisibility: .visible
             ) {
-                Button("删除好友及本机聊天记录", role: .destructive) {
+                Button("从当前账号删除好友及本机聊天记录", role: .destructive) {
                     if let contact = contactPendingDeletion {
                         model.deleteContact(contact)
                     }
@@ -1717,7 +1899,7 @@ struct ContentView: View {
                 }
                 Button("取消", role: .cancel) { contactPendingDeletion = nil }
             } message: {
-                Text("删除后，该好友及对应的本机聊天记录将一并移除。")
+                Text("只会从当前账号的通讯录中删除；其他账号的好友关系不会改变。")
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
             .overlay {
@@ -1989,7 +2171,8 @@ struct ContentView: View {
                     .foregroundStyle(messageTextColor)
                 Spacer()
                 Menu {
-                    Button("添加好友", systemImage: "person.badge.plus") { showAddContact = true }
+                    Button("扫一扫添加好友", systemImage: "qrcode.viewfinder") { showVirtualScanner = true }
+                    Button("手动添加好友", systemImage: "person.badge.plus") { showAddContact = true }
                     Button("创建群聊", systemImage: "person.3") { showCreateGroup = true }
                 } label: {
                     Image(systemName: "plus")
@@ -2026,15 +2209,18 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.secondary)
                         .padding(.horizontal, 5)
 
-                    let filteredContacts = model.contacts.filter {
-                        $0.id != model.activePersonaID &&
-                        (searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText))
+                    let filteredContacts = model.friendContacts.filter {
+                        $0.isGroup == true || $0.id != model.activeAccountID
+                    }.filter {
+                        searchText.isEmpty ||
+                        $0.name.localizedCaseInsensitiveContains(searchText) ||
+                        ($0.accountNumber ?? "").localizedCaseInsensitiveContains(searchText)
                     }
                     if filteredContacts.isEmpty {
                         EmptyHint(
                             symbol: "person.crop.circle.badge.plus",
-                            title: model.contacts.isEmpty ? "还没有好友" : "没有找到好友",
-                            subtitle: model.contacts.isEmpty ? "点击右上角加号，添加第一个联系人。" : "试试其他昵称。"
+                            title: model.friendContacts.isEmpty ? "当前账号还没有好友" : "没有找到好友",
+                            subtitle: model.friendContacts.isEmpty ? "点击右上角加号，扫一扫添加第一个好友。" : "试试昵称或账号编号。"
                         )
                         .padding(.top, 50)
                     } else {
@@ -2120,6 +2306,10 @@ struct ContentView: View {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(messageTextColor).frame(width: 34, height: 40)
                 }
                 .accessibilityLabel("视频通话")
+                Button { showVirtualScanner = true } label: {
+                    Image(systemName: "qrcode.viewfinder").font(.system(size: 19, weight: .medium)).foregroundStyle(messageTextColor).frame(width: 32, height: 40)
+                }
+                .accessibilityLabel("扫一扫添加好友")
                 Button { showChatSettings = true } label: {
                     Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
                 }
@@ -2416,6 +2606,7 @@ struct ContentView: View {
             VStack(spacing: 18) {
                 profileHeader
                 profileIdentityCard
+                accountQRCodeCard
                 profileWalletCard
                 profileSettingsCard
                 myMomentsProfileSection
@@ -2472,6 +2663,34 @@ struct ContentView: View {
         .padding(.horizontal, 18)
     }
 
+    private var accountQRCodeCard: some View {
+        Button { showMyQRCode = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 23, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+                    .frame(width: 48, height: 48)
+                    .background(Macaron.blue, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("我的专属二维码")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(messageTextColor)
+                    Text("账号编号  \(model.activeAccountNumber)")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Macaron.secondary)
+            }
+            .padding(15)
+            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(FluidPressButtonStyle())
+        .padding(.horizontal, 18)
+    }
+
     private var profileWalletCard: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
@@ -2497,7 +2716,7 @@ struct ContentView: View {
                 .foregroundStyle(messageTextColor)
             HStack(spacing: 8) {
                 Menu {
-                    ForEach(model.contacts.filter { $0.isGroup != true && $0.id != model.activePersonaID }) { contact in
+                    ForEach(model.friendContacts.filter { $0.isGroup != true && $0.id != model.activeAccountID }) { contact in
                         Button {
                             withAnimation(ChatMotion.layout) { walletTargetContactID = contact.id }
                         } label: {
@@ -2907,10 +3126,16 @@ struct ContentView: View {
                 MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0)
             })
         }
-        for contact in model.contacts where contact.isGroup != true && contact.id != model.activePersonaID {
-            items.append(contentsOf: contact.moments.map {
-                MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0)
-            })
+        for contact in model.friendContacts where contact.isGroup != true && contact.id != model.activeAccountID {
+            if contact.id == model.mainAccountID {
+                items.append(contentsOf: model.myMoments.map {
+                    MomentFeedItem(author: model.identity.me, avatarData: model.identity.meAvatarData, post: $0)
+                })
+            } else {
+                items.append(contentsOf: contact.moments.map {
+                    MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0)
+                })
+            }
         }
         return items.sorted { $0.post.date > $1.post.date }
     }
@@ -4439,7 +4664,7 @@ private struct AddContactSheet: View {
                     TextField("个性签名（可选）", text: $bio)
                 }
                 Section {
-                    Text("新增好友会建立独立聊天记录，之后可以在好友主页编辑资料和朋友圈。")
+                    Text("新账号会获得独立编号和二维码，并只加入当前账号的好友关系；其他账号不会自动成为好友。")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
                 }
@@ -5197,6 +5422,259 @@ private struct MomentFeedItem: Identifiable {
     var id: UUID { post.id }
 }
 
+private struct AccountQRCodeView: View {
+    let accountID: UUID
+    let accountNumber: String
+
+    private var generatedImage: UIImage? {
+        let payload = "customchat://account/\(accountID.uuidString)?number=\(accountNumber)"
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(payload.utf8), forKey: "inputMessage")
+        filter.setValue("H", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 9, y: 9))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent.integral) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    var body: some View {
+        Group {
+            if let generatedImage {
+                Image(uiImage: generatedImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(systemName: "qrcode")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(20)
+            }
+        }
+        .padding(12)
+        .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.black.opacity(0.06), lineWidth: 1))
+    }
+}
+
+private struct AccountQRCodeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let account: ChatContact
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                IdentityAvatar(data: account.avatarData, name: account.name, size: 76, tint: Macaron.blue)
+                Text(account.name)
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(Macaron.ink)
+                VStack(spacing: 6) {
+                    Text("CustomChat 账号编号")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                    Text(account.accountNumber ?? "未分配")
+                        .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                        .tracking(1.4)
+                        .foregroundStyle(Macaron.ink)
+                }
+                AccountQRCodeView(accountID: account.id, accountNumber: account.accountNumber ?? "")
+                    .frame(width: 230, height: 230)
+                Text("这是当前账号的专属二维码。其他账号不会共用此身份。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Macaron.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(24)
+            .background(Macaron.background)
+            .navigationTitle("我的二维码")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+}
+
+private struct VirtualScannerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let accounts: [ChatContact]
+    let currentAccountID: UUID
+    let friendIDs: Set<UUID>
+    let onAdd: (UUID) -> Bool
+    @State private var selectedAccountID: UUID?
+    @State private var searchText = ""
+    @State private var scanProgress: CGFloat = -1
+    @State private var didAdd = false
+
+    private var visibleAccounts: [ChatContact] {
+        accounts.filter { $0.id != currentAccountID }.filter {
+            searchText.isEmpty ||
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            ($0.accountNumber ?? "").localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var selectedAccount: ChatContact? {
+        accounts.first(where: { $0.id == selectedAccountID })
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 18) {
+                    VStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(hex: 0xEAF3FC))
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 78, weight: .ultraLight))
+                                .foregroundStyle(Color(hex: 0x76AEE4).opacity(0.55))
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color(hex: 0x69A8E4), lineWidth: 2)
+                                .padding(18)
+                            VStack {
+                                Rectangle()
+                                    .fill(Color(hex: 0x5D9FE0))
+                                    .frame(height: 2)
+                                    .shadow(color: Color(hex: 0x5D9FE0).opacity(0.55), radius: 5)
+                                    .offset(y: scanProgress * 72)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(30)
+                        }
+                        .frame(width: 222, height: 174)
+                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                        .onAppear {
+                            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: true)) {
+                                scanProgress = 1
+                            }
+                        }
+                        Text("虚拟扫一扫")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        Text("选择一个已创建的账号，模拟识别它的二维码")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Macaron.secondary)
+                        Label("本地模拟 · 不调用相机 · 无需相机权限", systemImage: "iphone")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x5799D9))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(Color(hex: 0xEAF3FC), in: Capsule())
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+
+                    HStack(spacing: 9) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(Macaron.secondary)
+                        TextField("搜索昵称或账号编号", text: $searchText)
+                            .font(.system(size: 14))
+                            .autocorrectionDisabled()
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+                    .background(Color(hex: 0xEEF1F6), in: Capsule())
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("可识别的虚拟账号")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        if visibleAccounts.isEmpty {
+                            EmptyHint(symbol: "person.crop.circle.badge.questionmark", title: "没有找到账号", subtitle: "请检查昵称或账号编号。")
+                                .padding(.vertical, 14)
+                        } else {
+                            ForEach(visibleAccounts) { account in
+                                Button {
+                                    withAnimation(ChatMotion.layout) {
+                                        selectedAccountID = account.id
+                                        didAdd = false
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        IdentityAvatar(data: account.avatarData, name: account.name, size: 46, tint: Macaron.blue)
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(account.name)
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundStyle(Macaron.ink)
+                                            Text("账号编号  \(account.accountNumber ?? "未分配")")
+                                                .font(.system(size: 11, design: .monospaced))
+                                                .foregroundStyle(Macaron.secondary)
+                                        }
+                                        Spacer()
+                                        AccountQRCodeView(accountID: account.id, accountNumber: account.accountNumber ?? "")
+                                            .frame(width: 48, height: 48)
+                                        Image(systemName: selectedAccountID == account.id ? "checkmark.circle.fill" : "chevron.right")
+                                            .foregroundStyle(selectedAccountID == account.id ? Color(hex: 0x65B99A) : Macaron.secondary)
+                                    }
+                                    .padding(11)
+                                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(selectedAccountID == account.id ? Color(hex: 0x91C8F2) : .clear, lineWidth: 1.5))
+                                }
+                                .buttonStyle(FluidPressButtonStyle())
+                            }
+                        }
+                    }
+
+                    if let account = selectedAccount {
+                        VStack(spacing: 13) {
+                            Text("已识别账号")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x5799D9))
+                            IdentityAvatar(data: account.avatarData, name: account.name, size: 60, tint: Macaron.blue)
+                            Text(account.name)
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(Macaron.ink)
+                            Text("账号编号  \(account.accountNumber ?? "未分配")")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(Macaron.secondary)
+                            AccountQRCodeView(accountID: account.id, accountNumber: account.accountNumber ?? "")
+                                .frame(width: 150, height: 150)
+                            Button {
+                                if onAdd(account.id) { didAdd = true }
+                            } label: {
+                                Label(
+                                    didAdd ? "已添加好友" : (friendIDs.contains(account.id) ? "已添加" : "添加到通讯录"),
+                                    systemImage: didAdd || friendIDs.contains(account.id) ? "checkmark" : "person.badge.plus"
+                                )
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 48)
+                                .background(Color(hex: 0x72B9A0), in: Capsule())
+                            }
+                            .disabled(didAdd || friendIDs.contains(account.id))
+                            .opacity(didAdd || friendIDs.contains(account.id) ? 0.65 : 1)
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity)
+                        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .transition(.chatCinematic)
+                    }
+                }
+                .padding(18)
+                .padding(.bottom, 20)
+            }
+            .background(Macaron.background)
+            .navigationTitle("扫一扫")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+}
+
 private struct PersonaSwitcherSheet: View {
     @Environment(\.dismiss) private var dismiss
     let currentPersonaID: UUID?
@@ -5214,7 +5692,7 @@ private struct PersonaSwitcherSheet: View {
                         dismiss()
                     }
                     ForEach(contacts) { contact in
-                        personaRow(name: contact.name, avatar: contact.avatarData, subtitle: "好友账号 · 独立资料与外观", isSelected: currentPersonaID == contact.id) {
+                        personaRow(name: contact.name, avatar: contact.avatarData, subtitle: "账号编号 \(contact.accountNumber ?? "未分配") · 独立资料与好友列表", isSelected: currentPersonaID == contact.id) {
                             onSelect(contact.id)
                             dismiss()
                         }
