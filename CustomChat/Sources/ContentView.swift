@@ -1865,6 +1865,7 @@ struct ContentView: View {
     @State private var showMicrophoneAlert = false
     @State private var showFriendProfile = false
     @State private var selectedGroupMember: ChatContact?
+    @State private var editingFriend: ChatContact?
     @State private var editingGroup: ChatContact?
     @State private var showChatSettings = false
     @State private var showVirtualScanner = false
@@ -2159,6 +2160,11 @@ struct ContentView: View {
             .sheet(item: $selectedGroupMember) { member in
                 GroupMemberProfileSheet(member: member, isFriend: model.isFriend(member.id)) {
                     _ = model.addFriend(accountID: member.id)
+                }
+            }
+            .sheet(item: $editingFriend) { contact in
+                FriendProfileSheet(contact: contact) { updated in
+                    model.updateContact(updated)
                 }
             }
             .sheet(item: $editingGroup) { group in
@@ -2586,11 +2592,18 @@ struct ContentView: View {
                             )
                             .transition(.chatCinematic)
                             .contextMenu {
-                                Button {
-                                    model.selectContact(contact.id)
-                                    showFriendProfile = true
-                                } label: {
-                                    Label("编辑好友", systemImage: "pencil")
+                                if contact.isGroup == true {
+                                    Button {
+                                        editingGroup = contact
+                                    } label: {
+                                        Label("编辑群聊", systemImage: "pencil")
+                                    }
+                                } else {
+                                    Button {
+                                        editingFriend = contact
+                                    } label: {
+                                        Label("编辑好友", systemImage: "pencil")
+                                    }
                                 }
                             }
                         }
@@ -2735,10 +2748,9 @@ struct ContentView: View {
                             .buttonStyle(FluidPressButtonStyle())
                             .contextMenu {
                                 Button {
-                                    model.selectContact(contact.id)
-                                    showFriendProfile = true
+                                    editingFriend = contact
                                 } label: {
-                                    Label("编辑备注", systemImage: "square.and.pencil")
+                                    Label("编辑好友", systemImage: "square.and.pencil")
                                 }
                                 Button(role: .destructive) {
                                     contactPendingDeletion = contact
