@@ -2573,8 +2573,14 @@ struct ContentView: View {
                         .foregroundStyle(messageTextColor)
                     HStack(spacing: 6) {
                         Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
-                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
+                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Macaron.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 Spacer()
                 Button { beginCall(video: false) } label: {
@@ -2585,10 +2591,6 @@ struct ContentView: View {
                     Image(systemName: "video").font(.system(size: 20)).foregroundStyle(messageTextColor).frame(width: 34, height: 40)
                 }
                 .accessibilityLabel("视频通话")
-                Button { showVirtualScanner = true } label: {
-                    Image(systemName: "qrcode.viewfinder").font(.system(size: 19, weight: .medium)).foregroundStyle(messageTextColor).frame(width: 32, height: 40)
-                }
-                .accessibilityLabel("扫一扫添加好友")
                 Button { showChatSettings = true } label: {
                     Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
                 }
