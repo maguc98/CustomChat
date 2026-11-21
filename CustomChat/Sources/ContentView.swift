@@ -559,6 +559,10 @@ struct PersonaAppearance: Codable {
     var incomingBubbleHex: UInt = 0xFFFFFF
     var textHex: UInt = 0x202A3A
     var accentHex: UInt = 0x8FC7FF
+    var backgroundOption: String = "雾蓝白"
+    var themeOption: String = "浅蓝"
+    var fontOption: String = "标准"
+    var soundOption: String = "轻柔"
     var chatBackgroundImageData: Data?
 }
 
@@ -1379,7 +1383,10 @@ struct ContentView: View {
     @State private var selectedTab: AppTab = .chats
     @State private var showConversation = false
     @State private var showMyProfileEditor = false
+    @State private var showPersonaSwitcher = false
     @State private var isProfileSettingsExpanded = false
+    @State private var walletTargetContactID: UUID?
+    @State private var chatBackgroundImageSelection: PhotosPickerItem?
     @State private var contactPendingDeletion: ChatContact?
     @State private var showAddContact = false
     @State private var showCreateGroup = false
@@ -1427,18 +1434,59 @@ struct ContentView: View {
     @State private var showFontPicker = false
     @State private var showSoundPicker = false
 
-    @AppStorage("customchat.preference.background") private var backgroundOption = "雾蓝白"
-    @AppStorage("customchat.preference.theme") private var themeOption = "浅蓝"
-    @AppStorage("customchat.preference.font") private var fontOption = "标准"
-    @AppStorage("customchat.preference.sound") private var soundOption = "轻柔"
+    private var activeAppearance: PersonaAppearance { model.activePersonaAppearance }
+    private var appBackgroundColor: Color { Color(hex: activeAppearance.appBackgroundHex) }
+    private var accentColor: Color { Color(hex: activeAppearance.accentHex) }
+    private var incomingBubbleColor: Color { Color(hex: activeAppearance.incomingBubbleHex) }
+    private var messageTextColor: Color { Color(hex: activeAppearance.textHex) }
 
-    private var accentColor: Color {
-        switch themeOption {
-        case "樱花粉": return Color(hex: 0xF0B8D2)
-        case "薄荷绿": return Color(hex: 0xA9DCC5)
-        case "薰衣草紫": return Color(hex: 0xC9B9ED)
-        default: return Macaron.blueStrong
+    private var backgroundOption: String {
+        get { activeAppearance.backgroundOption }
+        set {
+            var value = activeAppearance
+            value.backgroundOption = newValue
+            switch newValue {
+            case "奶油白": value.chatBackgroundHex = 0xFBF8F1
+            case "淡粉": value.chatBackgroundHex = 0xFCF1F6
+            case "薄荷绿": value.chatBackgroundHex = 0xF0F8F3
+            default: value.chatBackgroundHex = 0xF5F7FB
+            }
+            model.updateActivePersonaAppearance(value)
         }
+    }
+
+    private var themeOption: String {
+        get { activeAppearance.themeOption }
+        set {
+            var value = activeAppearance
+            value.themeOption = newValue
+            switch newValue {
+            case "樱花粉": value.accentHex = 0xF0B8D2
+            case "薄荷绿": value.accentHex = 0xA9DCC5
+            case "薰衣草紫": value.accentHex = 0xC9B9ED
+            default: value.accentHex = 0x8FC7FF
+            }
+            model.updateActivePersonaAppearance(value)
+        }
+    }
+
+    private var fontOption: String {
+        get { activeAppearance.fontOption }
+        set { var value = activeAppearance; value.fontOption = newValue; model.updateActivePersonaAppearance(value) }
+    }
+
+    private var soundOption: String {
+        get { activeAppearance.soundOption }
+        set { var value = activeAppearance; value.soundOption = newValue; model.updateActivePersonaAppearance(value) }
+    }
+
+    private var walletTargetContact: ChatContact? {
+        if let walletTargetContactID,
+           let contact = model.contacts.first(where: { $0.id == walletTargetContactID && $0.isGroup != true }) {
+            return contact
+        }
+        if let current = model.walletContactForCurrentChat, current.isGroup != true { return current }
+        return model.contacts.first(where: { $0.isGroup != true && $0.id != model.activePersonaID })
     }
 
     private var messageFontSize: CGFloat {
@@ -1450,17 +1498,33 @@ struct ContentView: View {
     }
 
     private var conversationBackground: Color {
-        switch backgroundOption {
-        case "奶油白": return Color(hex: 0xFBF8F1)
-        case "淡粉": return Color(hex: 0xFCF1F6)
-        case "薄荷绿": return Color(hex: 0xF0F8F3)
-        default: return Macaron.background
-        }
+        Color(hex: activeAppearance.chatBackgroundHex)
+    }
+
+    private func appearanceColorBinding(_ keyPath: WritableKeyPath<PersonaAppearance, UInt>) -> Binding<Color> {
+        Binding(
+            get: { Color(hex: model.activePersonaAppearance[keyPath: keyPath]) },
+            set: { newColor in
+                var appearance = model.activePersonaAppearance
+                appearance[keyPath: keyPath] = Self.hexValue(from: newColor)
+                model.updateActivePersonaAppearance(appearance)
+            }
+        )
+    }
+
+    private static func hexValue(from color: Color) -> UInt {
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 1
+        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return (UInt(red * 255) << 16) | (UInt(green * 255) << 8) | UInt(blue * 255)
     }
 
     private var pageContent: some View {
         ZStack {
-            Macaron.background.ignoresSafeArea()
+            appBackgroundColor.ignoresSafeArea()
             if showConversation {
                 conversationView
                     .transition(.chatCinematic)
