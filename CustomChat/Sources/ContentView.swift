@@ -1866,6 +1866,7 @@ struct ContentView: View {
     @State private var showFriendProfile = false
     @State private var selectedGroupMember: ChatContact?
     @State private var editingFriend: ChatContact?
+    @State private var showContactActions = false
     @State private var editingGroup: ChatContact?
     @State private var showChatSettings = false
     @State private var showVirtualScanner = false
@@ -2820,24 +2821,35 @@ struct ContentView: View {
                 }
                 .fixedSize()
                 .accessibilityLabel("视频通话")
-                Button { showChatSettings = true } label: {
+                Button {
+                    showContactActions = true
+                } label: {
                     Image(systemName: "ellipsis").font(.system(size: 19, weight: .semibold)).foregroundStyle(messageTextColor).frame(width: 26, height: 40)
                 }
                 .fixedSize()
+                .accessibilityLabel("联系人操作")
             }
             .frame(minWidth: 0, maxWidth: .infinity)
             .padding(.horizontal, 8)
             .padding(.top, 7)
             .padding(.bottom, 7)
             .background(Macaron.card)
-            .contextMenu {
-                if let group = model.currentContact, group.isGroup == true {
-                    Button {
-                        editingGroup = group
-                    } label: {
-                        Label("编辑群聊资料", systemImage: "pencil")
+            .confirmationDialog(
+                model.currentContact?.isGroup == true ? "群聊操作" : "联系人操作",
+                isPresented: $showContactActions,
+                titleVisibility: .visible
+            ) {
+                if let contact = model.currentContact {
+                    if contact.isGroup == true {
+                        Button("编辑群聊") { editingGroup = contact }
+                        Button("查看群聊资料") { showChatSettings = true }
+                    } else {
+                        Button("编辑好友备注") { editingFriend = contact }
+                        Button("查看朋友圈") { editingFriend = contact }
+                        Button("移除联系人", role: .destructive) { contactPendingDeletion = contact }
                     }
                 }
+                Button("取消", role: .cancel) {}
             }
 
             Rectangle().fill(Macaron.line).frame(height: 1)
