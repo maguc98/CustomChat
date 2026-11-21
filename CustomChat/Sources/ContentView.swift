@@ -1906,7 +1906,7 @@ struct ContentView: View {
                 Text("CustomChat")
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                     .tracking(-0.8)
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                 Spacer()
                 Menu {
                     Button("添加好友", systemImage: "person.badge.plus") { showAddContact = true }
@@ -1930,7 +1930,7 @@ struct ContentView: View {
                     .foregroundStyle(Macaron.secondary)
                 TextField("搜索聊天", text: $searchText)
                     .font(.system(size: 15))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                     .autocorrectionDisabled()
             }
             .padding(.horizontal, 16)
@@ -2006,14 +2006,14 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(Macaron.ink)
+                        .foregroundStyle(messageTextColor)
                         .frame(width: 30, height: 42)
                 }
                 Button { if model.currentContact?.isGroup == true { showCreateGroup = true } else { showFriendProfile = true } } label: { IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink) }.buttonStyle(FluidPressButtonStyle())
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.currentContact?.name ?? model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
+                        .foregroundStyle(messageTextColor)
                     HStack(spacing: 6) {
                         Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
                         Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天").font(.system(size: 13, weight: .medium)).foregroundStyle(Macaron.secondary)
@@ -2021,15 +2021,15 @@ struct ContentView: View {
                 }
                 Spacer()
                 Button { beginCall(video: false) } label: {
-                    Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
+                    Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(messageTextColor).frame(width: 34, height: 40)
                 }
                 .accessibilityLabel("语音通话")
                 Button { beginCall(video: true) } label: {
-                    Image(systemName: "video").font(.system(size: 20)).foregroundStyle(Macaron.ink).frame(width: 34, height: 40)
+                    Image(systemName: "video").font(.system(size: 20)).foregroundStyle(messageTextColor).frame(width: 34, height: 40)
                 }
                 .accessibilityLabel("视频通话")
                 Button { showChatSettings = true } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink).frame(width: 30, height: 40)
+                    Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
                 }
             }
             .padding(.horizontal, 16)
@@ -2168,7 +2168,7 @@ struct ContentView: View {
     private func senderIdentityChip(name: String, selected: Bool, tint: Color) -> some View {
         Text(name)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Macaron.ink)
+            .foregroundStyle(messageTextColor)
             .padding(.horizontal, 14)
             .frame(height: 30)
             .background(selected ? tint.opacity(0.78) : Color(hex: 0xF0F1F5), in: Capsule())
@@ -2267,7 +2267,7 @@ struct ContentView: View {
                         HStack(spacing: 8) {
                             TextField("输入消息...", text: $draft, axis: .vertical)
                                 .font(.system(size: fontOption == "偏大" ? 16 : 15))
-                                .foregroundStyle(Macaron.ink)
+                                .foregroundStyle(messageTextColor)
                                 .lineLimit(1...4)
                                 .padding(.vertical, 12)
                                 .focused($messageFocused)
@@ -2335,7 +2335,7 @@ struct ContentView: View {
         HStack {
             Text("我的")
                 .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             Spacer()
             Button { showMyProfileEditor = true } label: {
                 Image(systemName: "pencil")
@@ -2359,7 +2359,7 @@ struct ContentView: View {
                         .contentTransition(.interpolate)
                         .animation(ChatMotion.text, value: model.activePersonaName)
                         .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
+                        .foregroundStyle(messageTextColor)
                     Text(model.activePersonaID == nil ? "当前账号 · 点击切换身份" : "好友账号 · 点击切换身份")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
@@ -2381,7 +2381,7 @@ struct ContentView: View {
             HStack {
                 Label("我的钱包", systemImage: "wallet.pass.fill")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                 Spacer()
                 Button("修改余额") {
                     editingWalletRole = .me
@@ -2398,7 +2398,7 @@ struct ContentView: View {
                 .contentTransition(.numericText())
                 .animation(ChatMotion.text, value: model.activePersonaWalletBalance())
                 .font(.system(size: 32, weight: .bold, design: .rounded))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             HStack(spacing: 8) {
                 Menu {
                     ForEach(model.contacts.filter { $0.isGroup != true && $0.id != model.activePersonaID }) { contact in
@@ -2426,7 +2426,7 @@ struct ContentView: View {
                     .contentTransition(.numericText())
                     .animation(ChatMotion.text, value: model.walletBalance(for: walletTargetContact))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                 Button("修改") {
                     editingWalletRole = .other
                     editingWalletContactID = walletTargetContact?.id
@@ -2491,7 +2491,7 @@ struct ContentView: View {
             HStack {
                 Text("设置")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                 Spacer()
                 Image(systemName: "chevron.down")
                     .font(.system(size: 13, weight: .semibold))
@@ -2584,7 +2584,7 @@ struct ContentView: View {
         HStack {
             Text("我的朋友圈")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             Spacer()
             if !model.activePersonaMoments.isEmpty {
                 Button("查看全部") { showAllMyMoments = true }
@@ -2624,7 +2624,7 @@ struct ContentView: View {
                 .padding(18)
                 .animation(ChatMotion.layout, value: model.activePersonaMoments.map { $0.id })
             }
-            .background(Macaron.background)
+            .background(appBackgroundColor)
             .navigationTitle("我的朋友圈")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2648,7 +2648,7 @@ struct ContentView: View {
             if !post.text.isEmpty {
                 Text(post.text)
                     .font(.system(size: 14))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let mediaData = post.mediaData {
@@ -2710,7 +2710,7 @@ struct ContentView: View {
     private var callScreenTitle: some View {
         Text("通话")
             .font(.system(size: 23, weight: .bold))
-            .foregroundStyle(Macaron.ink)
+            .foregroundStyle(messageTextColor)
             .padding(.top, 22)
     }
 
@@ -2723,7 +2723,7 @@ struct ContentView: View {
                 .background(Macaron.blue, in: Circle())
             Text("通话")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             Text("查看和管理最近的语音通话与视频通话。")
                 .font(.system(size: 12))
                 .foregroundStyle(Macaron.secondary)
@@ -2743,7 +2743,7 @@ struct ContentView: View {
                 }
             }
             .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Macaron.ink)
+            .foregroundStyle(messageTextColor)
         }
         .padding(18)
         .background(Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -2754,7 +2754,7 @@ struct ContentView: View {
         HStack {
             Text("最近通话")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             Spacer()
             Text("仅本机保存")
                 .font(.system(size: 11))
@@ -2812,7 +2812,7 @@ struct ContentView: View {
 
     private var momentsFeedItems: [MomentFeedItem] {
         var items = model.contacts.first(where: { $0.id == model.activePersonaID })?.moments.map { MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0) } ?? model.myMoments.map { MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0) }
-        for contact in model.contacts where contact.isGroup != true {
+        for contact in model.contacts where contact.isGroup != true && contact.id != model.activePersonaID {
             items.append(contentsOf: contact.moments.map { MomentFeedItem(author: contact.name, avatarData: contact.avatarData, post: $0) })
         }
         return items.sorted { $0.post.date > $1.post.date }
@@ -2839,7 +2839,7 @@ struct ContentView: View {
         HStack {
             Text("朋友圈")
                 .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             Spacer()
             Button {
                 selectedTab = .profile
@@ -2867,7 +2867,7 @@ struct ContentView: View {
                     if !item.post.text.isEmpty {
                         Text(item.post.text)
                             .font(.system(size: 14))
-                            .foregroundStyle(Macaron.ink)
+                            .foregroundStyle(messageTextColor)
                     }
                     if let data = item.post.mediaData {
                         MomentMediaView(data: data, mediaType: item.post.mediaType)
@@ -2929,14 +2929,14 @@ struct ContentView: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(Color(hex: 0x4F91D2))
                         Text(comment.text)
-                            .foregroundStyle(Macaron.ink)
+                            .foregroundStyle(messageTextColor)
                     }
                     .font(.system(size: 11))
                 }
             }
             .padding(9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Macaron.background, in: RoundedRectangle(cornerRadius: 10))
+            .background(appBackgroundColor, in: RoundedRectangle(cornerRadius: 10))
             .transition(.chatCinematic)
         }
     }
@@ -2945,7 +2945,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Text("相册")
                 .font(.system(size: 23, weight: .bold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
                 .padding(.top, 22)
                 .padding(.bottom, 18)
 
@@ -3032,7 +3032,7 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("中文离线语音模型")
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Macaron.ink)
+                                    .foregroundStyle(messageTextColor)
                                 Text(voiceCapture.isModelInstalled ? "已下载 · 可离线使用" : "约 168 MB · 首次下载需要网络")
                                     .font(.system(size: 11))
                                     .foregroundStyle(Macaron.secondary)
@@ -3172,7 +3172,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("界面外观")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             appearanceColorRow("整体背景", keyPath: \.appBackgroundHex)
             appearanceColorRow("聊天背景", keyPath: \.chatBackgroundHex)
             appearanceColorRow("我方聊天气泡", keyPath: \.outgoingBubbleHex)
@@ -3210,7 +3210,7 @@ struct ContentView: View {
         HStack {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             Spacer()
             ColorPicker(title, selection: appearanceColorBinding(keyPath), supportsOpacity: false)
                 .labelsHidden()
@@ -3243,9 +3243,9 @@ struct ContentView: View {
                     .foregroundStyle(Macaron.secondary)
                 TextField("输入昵称", text: name)
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                     .padding(12)
-                    .background(Macaron.background, in: RoundedRectangle(cornerRadius: 12))
+                    .background(appBackgroundColor, in: RoundedRectangle(cornerRadius: 12))
             }
         }
         .padding(15)
@@ -3366,7 +3366,7 @@ private struct ChatListRow: View {
                     .contentTransition(.interpolate)
                     .animation(ChatMotion.text, value: name)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                 Text(preview.isEmpty ? " " : preview)
                     .contentTransition(.interpolate)
                     .animation(ChatMotion.text, value: preview)
@@ -3404,7 +3404,7 @@ private struct ProfileIdentityCard: View {
                 IdentityAvatar(data: avatarData, name: name, size: 66, tint: tint)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title).font(.system(size: 13)).foregroundStyle(Macaron.secondary)
-                    Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(Macaron.ink)
+                    Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(messageTextColor)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -3434,7 +3434,7 @@ private struct SettingsRow: View {
                     .frame(width: 28)
                 Text(title)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                 Spacer()
                 Text(value)
                     .font(.system(size: 13))
@@ -3459,7 +3459,7 @@ private struct SettingsLine: View {
     var body: some View {
         HStack(spacing: 13) {
             Image(systemName: symbol).foregroundStyle(tint).frame(width: 28)
-            Text(title).foregroundStyle(Macaron.ink)
+            Text(title).foregroundStyle(messageTextColor)
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .semibold))
@@ -3516,7 +3516,7 @@ private struct CallHistoryRow: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(name)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
+                        .foregroundStyle(messageTextColor)
                     Text("\(record.isVideo ? "视频通话" : "语音通话") · \(durationText(record.duration))")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
@@ -3575,7 +3575,7 @@ private struct EmptyHint: View {
                 .foregroundStyle(Color(hex: 0x91B8DE))
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             Text(subtitle)
                 .font(.system(size: 12))
                 .foregroundStyle(Macaron.secondary)
@@ -3689,7 +3689,7 @@ private struct MessageRow: View {
                         .font(.system(size: 12))
                         .opacity(0.75)
                 }
-                .foregroundStyle(Macaron.ink)
+                .foregroundStyle(messageTextColor)
             }
             .padding(12)
             .frame(width: 225, alignment: .leading)
@@ -3707,13 +3707,13 @@ private struct MessageRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("已收款")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
+                        .foregroundStyle(messageTextColor)
                     Text("¥\(message.amount ?? 0, specifier: "%.2f")")
                         .contentTransition(.numericText())
                         .animation(ChatMotion.text, value: message.amount ?? 0)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(Macaron.ink)
+                        .foregroundStyle(messageTextColor)
                     Text(message.note.isEmpty ? "转账" : message.note)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
@@ -3751,7 +3751,7 @@ private struct MessageRow: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
-                }.foregroundStyle(Macaron.ink)
+                }.foregroundStyle(messageTextColor)
             }
             .padding(12).frame(width: 225, alignment: .leading)
             .background(Color(hex: 0xFCE7E2), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -3774,7 +3774,7 @@ private struct MessageRow: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color(hex: 0x2C8A5A))
                     }
-                }.foregroundStyle(Macaron.ink)
+                }.foregroundStyle(messageTextColor)
             }
             .padding(12).frame(width: 225, alignment: .leading)
             .background(Color(hex: 0xFFF1D9), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -3819,7 +3819,7 @@ private struct AddContentMenu: View {
                 HStack {
                     Text("添加内容")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Macaron.ink)
+                        .foregroundStyle(messageTextColor)
                     Spacer()
                     Button("取消", action: onDismiss)
                         .font(.system(size: 14, weight: .medium))
@@ -3858,12 +3858,12 @@ private struct AddContentMenuItem: View {
             VStack(spacing: 9) {
                 Image(systemName: symbol)
                     .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
                     .frame(width: 54, height: 54)
                     .background(tint, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Macaron.ink)
+                    .foregroundStyle(messageTextColor)
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
