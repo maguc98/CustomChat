@@ -1615,6 +1615,17 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showMyProfileEditor) { myProfileEditor }
+            .sheet(isPresented: $showPersonaSwitcher) {
+                PersonaSwitcherSheet(
+                    currentPersonaID: model.activePersonaID,
+                    ownName: model.identity.me,
+                    ownAvatar: model.identity.meAvatarData,
+                    contacts: model.contacts.filter { $0.isGroup != true }
+                ) { selectedID in
+                    model.switchPersona(selectedID)
+                    walletTargetContactID = nil
+                }
+            }
             .sheet(isPresented: $showChatSettings) { chatSettingsSheet }
             .sheet(isPresented: $showCreateGroup) {
                 CreateGroupSheet(contacts: model.contacts.filter { $0.isGroup != true }) { name, ids in
@@ -2053,7 +2064,9 @@ struct ContentView: View {
                                     // without mutating the stored sender role.
                                     isMe: message.role == model.activeRole,
                                     fontSize: messageFontSize,
-                                    outgoingColor: accentColor,
+                                    outgoingColor: Color(hex: activeAppearance.outgoingBubbleHex),
+                                    incomingColor: Color(hex: activeAppearance.incomingBubbleHex),
+                                    textColor: messageTextColor,
                                     onEdit: { editing = message; editText = message.text },
                                     onVoiceTranscript: {
                                         let recognized = message.voiceTranscript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? message.text
@@ -2124,10 +2137,17 @@ struct ContentView: View {
                     }
                 }
             }
-            .background(
-                conversationBackground,
-                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-            )
+            .background {
+                if let data = activeAppearance.chatBackgroundImageData, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                } else {
+                    conversationBackground
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -2141,7 +2161,7 @@ struct ContentView: View {
             composer
                 .transition(.chatCinematic)
         }
-        .background(Macaron.card)
+        .background(appBackgroundColor)
         .padding(.bottom, messageFocused ? 8 : 0)
     }
 
@@ -2165,7 +2185,7 @@ struct ContentView: View {
                     Button {
                         withAnimation(ChatMotion.layout) { model.selectGroupSender(nil) }
                     } label: {
-                        senderIdentityChip(name: model.identity.me, selected: model.activeGroupSenderID == nil, tint: accentColor)
+                        senderIdentityChip(name: model.activePersonaName, selected: model.activeGroupSenderID == nil, tint: accentColor)
                     }
                     .buttonStyle(FluidPressButtonStyle())
                     ForEach(model.currentContact.map { model.groupMembers($0) } ?? []) { member in
@@ -3600,6 +3620,8 @@ private struct MessageRow: View {
     let isMe: Bool
     let fontSize: CGFloat
     let outgoingColor: Color
+    let incomingColor: Color
+    let textColor: Color
     let onEdit: () -> Void
     let onVoiceTranscript: () -> Void
     let onVoiceCustom: () -> Void
@@ -3652,7 +3674,7 @@ private struct MessageRow: View {
                 .padding(.horizontal, 13).padding(.vertical, 8)
                 .background(Color.white.opacity(0.72), in: Capsule())
         } else if message.kind == .voice {
-            VoiceMessageBubble(message: message, isMe: isMe, outgoingColor: outgoingColor)
+            VoiceMessageBubble(message: message, isMe: isMe, outgoingColor: outgoingColor, incomingColor: incomingColor, textColor: textColor)
         } else if message.kind == .call {
             HStack(spacing: 11) {
                 Image(systemName: message.note.contains("视频") ? "video.fill" : "phone.fill")
@@ -3761,15 +3783,15 @@ private struct MessageRow: View {
             Button { onImageTap(data) } label: {
                 Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: 285, maxHeight: 270)
                     .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous)).padding(7)
-                    .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+                    .background(isMe ? outgoingColor : incomingColor, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color.white.opacity(0.95), lineWidth: 1.4))
             }.buttonStyle(FluidPressButtonStyle())
         } else {
-            Text(message.text).font(.system(size: fontSize)).foregroundStyle(Macaron.ink)
+            Text(message.text).font(.system(size: fontSize)).foregroundStyle(textColor)
                 .contentTransition(.interpolate)
                 .animation(ChatMotion.text, value: message.text)
                 .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 15).padding(.vertical, 11)
-                .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
+                .background(isMe ? outgoingColor : incomingColor, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
     }
@@ -5169,6 +5191,8 @@ private struct VoiceMessageBubble: View {
     let message: ChatMessage
     let isMe: Bool
     let outgoingColor: Color
+    let incomingColor: Color
+    let textColor: Color
     @State private var isAnimating = false
 
     private var durationText: String { String(format: "%d″", Int(message.voiceDuration.rounded())) }
@@ -5203,7 +5227,7 @@ private struct VoiceMessageBubble: View {
                             .contentTransition(.interpolate)
                             .animation(ChatMotion.text, value: message.text)
                             .font(.system(size: 13))
-                            .foregroundStyle(Macaron.ink)
+                            .foregroundStyle(textColor)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -5213,10 +5237,10 @@ private struct VoiceMessageBubble: View {
                     }
                 }
             }
-            .foregroundStyle(Macaron.ink)
+            .foregroundStyle(textColor)
             .padding(.horizontal, 14).padding(.vertical, 11)
             .frame(width: 230, alignment: .leading)
-            .background(isMe ? outgoingColor.opacity(0.78) : Macaron.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(isMe ? outgoingColor : incomingColor, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
         }
         .buttonStyle(FluidPressButtonStyle())
