@@ -1359,57 +1359,7 @@ struct ContentView: View {
                     .transition(.chatCinematic)
             }
         }
-        .overlay {
-            if let call = activeCall, isCallMinimized {
-                GeometryReader { geometry in
-                    let current = minimizedCallPosition ?? CGPoint(x: geometry.size.width - 104, y: 76)
-                    Button {
-                        withAnimation(ChatMotion.layout) { isCallMinimized = false }
-                    } label: {
-                        HStack(spacing: 9) {
-                            ZStack {
-                                Circle().fill(Color(hex: 0xE5F1FD)).frame(width: 34, height: 34)
-                                Image(systemName: call.isVideo ? "video.fill" : "phone.fill")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0x4F91D2))
-                            }
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(call.isVideo ? "视频通话中" : "语音通话中")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Macaron.ink)
-                                Text("轻点返回 · 可拖动")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundStyle(Macaron.secondary)
-                            }
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Macaron.secondary)
-                        }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 9)
-                        .frame(width: 184, height: 56)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
-                        .shadow(color: Color(hex: 0x607FA5).opacity(0.17), radius: 14, x: 0, y: 5)
-                    }
-                    .buttonStyle(.plain)
-                    .position(current)
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 5)
-                            .onChanged { value in
-                                let origin = minimizedCallDragOrigin ?? current
-                                if minimizedCallDragOrigin == nil { minimizedCallDragOrigin = current }
-                                let x = min(max(94, origin.x + value.translation.width), max(94, geometry.size.width - 94))
-                                let y = min(max(36, origin.y + value.translation.height), max(36, geometry.size.height - 36))
-                                minimizedCallPosition = CGPoint(x: x, y: y)
-                            }
-                            .onEnded { _ in minimizedCallDragOrigin = nil }
-                    )
-                }
-                .transition(.chatCinematic)
-                .zIndex(50)
-            }
-        }
+        .overlay { minimizedCallOverlay }
         .sheet(item: Binding(
             get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
             set: { activeMomentForComments = $0?.id }
@@ -1425,6 +1375,16 @@ struct ContentView: View {
                     }
                 }
             )
+        }
+    }
+
+    @ViewBuilder private var minimizedCallOverlay: some View {
+        if let call = activeCall, isCallMinimized {
+            MinimizedCallPill(call: call, position: $minimizedCallPosition) {
+                withAnimation(ChatMotion.layout) { isCallMinimized = false }
+            }
+            .transition(.chatCinematic)
+            .zIndex(50)
         }
     }
     var body: some View {
@@ -3645,6 +3605,69 @@ private struct PhotoPreviewView: View {
                     Button("完成") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+private struct MinimizedCallPill: View {
+    @ObservedObject var call: SimulatedCall
+    @Binding var position: CGPoint?
+    let onRestore: () -> Void
+    @State private var dragOrigin: CGPoint?
+    @State private var didDrag = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let current = position ?? CGPoint(x: geometry.size.width - 104, y: 76)
+            Button {
+                if !didDrag { onRestore() }
+            } label: {
+                HStack(spacing: 9) {
+                    ZStack {
+                        Circle().fill(Color(hex: 0xE5F1FD)).frame(width: 34, height: 34)
+                        Image(systemName: call.isVideo ? "video.fill" : "phone.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x4F91D2))
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(call.isVideo ? "视频通话中" : "语音通话中")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Macaron.ink)
+                        Text("轻点返回 · 可拖动")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Macaron.secondary)
+                    }
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 9)
+                .frame(width: 184, height: 56)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Color.white.opacity(0.9), lineWidth: 1))
+                .shadow(color: Color(hex: 0x607FA5).opacity(0.17), radius: 14, x: 0, y: 5)
+            }
+            .buttonStyle(.plain)
+            .position(current)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 5)
+                    .onChanged { value in
+                        if dragOrigin == nil {
+                            dragOrigin = current
+                            didDrag = false
+                        }
+                        didDrag = true
+                        let origin = dragOrigin ?? current
+                        let x = min(max(94, origin.x + value.translation.width), max(94, geometry.size.width - 94))
+                        let y = min(max(36, origin.y + value.translation.height), max(36, geometry.size.height - 36))
+                        position = CGPoint(x: x, y: y)
+                    }
+                    .onEnded { _ in
+                        dragOrigin = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { didDrag = false }
+                    }
+            )
         }
     }
 }
