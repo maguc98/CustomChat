@@ -519,19 +519,20 @@ struct ChatMessage: Identifiable, Codable {
     var isReceived: Bool
     var senderName: String?
     var senderAvatarData: Data?
+    var senderAccountID: UUID?
     var voiceDuration: Double
     var waveform: [Double]
     var voiceTranscript: String?
 
     init(text: String = "", role: ChatRole, time: Date = .now, imageData: Data? = nil,
-         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil, senderAvatarData: Data? = nil, voiceDuration: Double = 0, waveform: [Double] = [], voiceTranscript: String? = nil) {
+         kind: ChatMessageKind? = nil, amount: Double? = nil, note: String = "", isWithdrawn: Bool = false, isReceived: Bool = false, senderName: String? = nil, senderAvatarData: Data? = nil, senderAccountID: UUID? = nil, voiceDuration: Double = 0, waveform: [Double] = [], voiceTranscript: String? = nil) {
         id = UUID(); self.text = text; self.role = role; self.time = time; self.imageData = imageData
         self.kind = kind ?? (imageData == nil ? .text : .image)
-        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName; self.senderAvatarData = senderAvatarData
+        self.amount = amount; self.note = note; self.isWithdrawn = isWithdrawn; self.isReceived = isReceived; self.senderName = senderName; self.senderAvatarData = senderAvatarData; self.senderAccountID = senderAccountID
         self.voiceDuration = voiceDuration; self.waveform = waveform; self.voiceTranscript = voiceTranscript
     }
 
-    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName, senderAvatarData, voiceDuration, waveform, voiceTranscript }
+    enum CodingKeys: String, CodingKey { case id, text, role, time, imageData, kind, amount, note, isWithdrawn, isReceived, senderName, senderAvatarData, senderAccountID, voiceDuration, waveform, voiceTranscript }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -547,6 +548,7 @@ struct ChatMessage: Identifiable, Codable {
         isReceived = try values.decodeIfPresent(Bool.self, forKey: .isReceived) ?? false
         senderName = try values.decodeIfPresent(String.self, forKey: .senderName)
         senderAvatarData = try values.decodeIfPresent(Data.self, forKey: .senderAvatarData)
+        senderAccountID = try values.decodeIfPresent(UUID.self, forKey: .senderAccountID)
         voiceDuration = try values.decodeIfPresent(Double.self, forKey: .voiceDuration) ?? 0
         waveform = try values.decodeIfPresent([Double].self, forKey: .waveform) ?? []
         voiceTranscript = try values.decodeIfPresent(String.self, forKey: .voiceTranscript)
@@ -794,7 +796,7 @@ private final class ChatModel: ObservableObject {
         }
 
         isSwitchingThread = true
-        messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0, personaID: activePersonaID)] ?? (activePersonaID == nil ? threadMessages[$0.uuidString] : nil) } ?? []
+        messages = selectedContactID.map { loadThread(for: $0, personaID: activePersonaID) } ?? []
         isSwitchingThread = false
 
         if let data = defaults.data(forKey: callsByAccountKey),
@@ -910,16 +912,53 @@ private final class ChatModel: ObservableObject {
             activeRole = .me
             activeGroupSenderID = nil
             isSwitchingThread = true
-            messages = selectedContactID.flatMap {
-                threadMessages[threadKey(for: $0, personaID: id)] ?? (id == nil ? threadMessages[$0.uuidString] : nil)
-            } ?? []
+            messages = selectedContactID.map { loadThread(for: $0, personaID: id) } ?? []
             calls = callsByAccount[id?.uuidString ?? mainAccountID.uuidString] ?? []
             isSwitchingThread = false
         }
     }
 
     private func threadKey(for contactID: UUID, personaID: UUID? = nil) -> String {
-        "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
+        let ownerID = personaID ?? mainAccountID
+        if contacts.contains(where: { $0.id == contactID && $0.isGroup == true }) {
+            return "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
+        }
+        let ownerFriends = friendIDsByAccount[ownerID.uuidString] ?? []
+        let contactFriends = friendIDsByAccount[contactID.uuidString] ?? []
+        if ownerFriends.contains(contactID.uuidString), contactFriends.contains(ownerID.uuidString) {
+            let pair = [ownerID.uuidString, contactID.uuidString].sorted()
+            return "pair::\(pair[0])::\(pair[1])"
+        }
+        return "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
+    }
+
+    private func loadThread(for contactID: UUID, personaID: UUID?) -> [ChatMessage] {
+        let ownerID = personaID ?? mainAccountID
+        let key = threadKey(for: contactID, personaID: personaID)
+        let legacyKey = "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
+        let stored = threadMessages[key]
+            ?? threadMessages[legacyKey]
+            ?? (personaID == nil ? threadMessages[contactID.uuidString] : nil)
+            ?? []
+        var normalized = stored
+        for index in normalized.indices {
+            if normalized[index].senderAccountID == nil {
+                normalized[index].senderAccountID = normalized[index].role == .me ? ownerID : contactID
+            }
+            normalized[index].role = normalized[index].senderAccountID == ownerID ? .me : .other
+        }
+        if threadMessages[key] == nil, !normalized.isEmpty {
+            threadMessages[key] = normalized
+            persistAllThreads()
+        } else if threadMessages[key] != normalized {
+            threadMessages[key] = normalized
+        }
+        return normalized
+    }
+
+    private func messageSenderAccountID(for role: ChatRole) -> UUID? {
+        guard currentContact?.isGroup != true else { return nil }
+        return role == .me ? activeAccountID : selectedContactID
     }
 
     func updateActivePersonaAppearance(_ appearance: PersonaAppearance) {
@@ -1010,8 +1049,7 @@ private final class ChatModel: ObservableObject {
         persistCurrentThread()
         selectedContactID = id
         isSwitchingThread = true
-        messages = threadMessages[threadKey(for: id, personaID: activePersonaID)]
-            ?? (activePersonaID == nil ? threadMessages[id.uuidString] : nil) ?? []
+        messages = loadThread(for: id, personaID: activePersonaID)
         isSwitchingThread = false
     }
 
@@ -1133,7 +1171,7 @@ private final class ChatModel: ObservableObject {
         if selectedContactID == contact.id {
             selectedContactID = friendContacts.first?.id
             isSwitchingThread = true
-            messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0, personaID: activePersonaID)] } ?? []
+            messages = selectedContactID.map { loadThread(for: $0, personaID: activePersonaID) } ?? []
             isSwitchingThread = false
         }
         UserDefaults.standard.set(try? JSONEncoder().encode(threadMessages), forKey: threadsKey)
@@ -1158,17 +1196,17 @@ private final class ChatModel: ObservableObject {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         revealCurrentChat()
-        messages.append(ChatMessage(text: value, role: activeRole, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
+        messages.append(ChatMessage(text: value, role: activeRole, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, senderAccountID: messageSenderAccountID(for: activeRole)))
     }
 
     func sendVoice(duration: Double, waveform: [Double], text: String = "", recognizedText: String = "") {
         revealCurrentChat()
-        messages.append(ChatMessage(text: text, role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, voiceDuration: duration, waveform: waveform, voiceTranscript: recognizedText))
+        messages.append(ChatMessage(text: text, role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, senderAccountID: messageSenderAccountID(for: activeRole), voiceDuration: duration, waveform: waveform, voiceTranscript: recognizedText))
     }
 
     func sendImage(_ data: Data) {
         revealCurrentChat()
-        messages.append(ChatMessage(role: activeRole, imageData: data, kind: .image, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
+        messages.append(ChatMessage(role: activeRole, imageData: data, kind: .image, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, senderAccountID: messageSenderAccountID(for: activeRole)))
     }
 
     @discardableResult
@@ -1185,7 +1223,7 @@ private final class ChatModel: ObservableObject {
             updateWalletBalance(balance - amount, contactID: walletContact.id)
         }
         revealCurrentChat()
-        messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
+        messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, senderAccountID: messageSenderAccountID(for: activeRole)))
         return true
     }
 
@@ -1224,7 +1262,8 @@ private final class ChatModel: ObservableObject {
                 amount: amount,
                 note: message.kind == .transfer ? "转账" : "红包",
                 senderName: outgoingSenderName,
-                senderAvatarData: outgoingSenderAvatar
+                senderAvatarData: outgoingSenderAvatar,
+                senderAccountID: messageSenderAccountID(for: activeRole)
             )
         )
         messages = updatedMessages
@@ -1235,7 +1274,7 @@ private final class ChatModel: ObservableObject {
         revealCurrentChat()
         let label = isVideo ? "视频通话" : "语音通话"
         let time = String(format: "%02d:%02d", duration / 60, duration % 60)
-        messages.append(ChatMessage(role: .me, kind: .call, note: "\(label) · \(time)"))
+        messages.append(ChatMessage(role: .me, kind: .call, note: "\(label) · \(time)", senderAccountID: messageSenderAccountID(for: .me)))
     }
 
     func update(_ message: ChatMessage, text: String) {
@@ -1250,6 +1289,7 @@ private final class ChatModel: ObservableObject {
     func changeRole(_ message: ChatMessage) {
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         messages[index].role = messages[index].role == .me ? .other : .me
+        messages[index].senderAccountID = messageSenderAccountID(for: messages[index].role)
     }
 
     func updateTime(_ message: ChatMessage, time: Date) {
@@ -1344,7 +1384,11 @@ private final class ChatModel: ObservableObject {
 
     private func persistCurrentThread() {
         guard !isSwitchingThread, let selectedContactID else { return }
-        threadMessages[threadKey(for: selectedContactID, personaID: activePersonaID)] = messages
+        var sharedMessages = messages
+        for index in sharedMessages.indices where sharedMessages[index].senderAccountID == nil {
+            sharedMessages[index].senderAccountID = messageSenderAccountID(for: sharedMessages[index].role)
+        }
+        threadMessages[threadKey(for: selectedContactID, personaID: activePersonaID)] = sharedMessages
         if let data = try? JSONEncoder().encode(threadMessages) {
             UserDefaults.standard.set(data, forKey: threadsKey)
         }
