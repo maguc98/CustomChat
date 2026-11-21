@@ -3954,12 +3954,9 @@ private struct AddContentMenuItem: View {
 private struct PhotoPreviewView: View {
     let images: [Data]
     let initialIndex: Int
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\\.dismiss) private var dismiss
     @State private var currentIndex: Int
     @State private var zoomScale: CGFloat = 1
-    @State private var lastZoomScale: CGFloat = 1
-    @State private var imageOffset: CGSize = .zero
-    @State private var lastImageOffset: CGSize = .zero
     @State private var dragTranslation: CGFloat = 0
 
     init(images: [Data], initialIndex: Int) {
@@ -3977,89 +3974,47 @@ private struct PhotoPreviewView: View {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
-                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                             .scaleEffect(zoomScale)
-                            .offset(x: zoomScale <= 1.02 ? dragTranslation : imageOffset.width,
-                                    y: imageOffset.height)
+                            .offset(x: zoomScale > 1.02 ? 0 : dragTranslation)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .contentShape(Rectangle())
                             .gesture(
-                                MagnificationGesture()
+                                DragGesture(minimumDistance: 12)
                                     .onChanged { value in
-                                        zoomScale = min(max(lastZoomScale * value, 1), 5)
-                                    }
-                                    .onEnded { _ in
-                                        lastZoomScale = zoomScale
-                                        if zoomScale <= 1 {
-                                            withAnimation(ChatMotion.layout) {
-                                                zoomScale = 1
-                                                lastZoomScale = 1
-                                                imageOffset = .zero
-                                                lastImageOffset = .zero
-                                            }
+                                        if zoomScale <= 1.02 {
+                                            dragTranslation = value.translation.width
                                         }
                                     }
-                                    .simultaneously(with:
-                                        DragGesture(minimumDistance: 8)
-                                            .onChanged { value in
-                                                if zoomScale > 1.02 {
-                                                    imageOffset = CGSize(
-                                                        width: lastImageOffset.width + value.translation.width,
-                                                        height: lastImageOffset.height + value.translation.height
-                                                    )
-                                                } else {
-                                                    dragTranslation = value.translation.width
-                                                }
-                                            }
-                                            .onEnded { value in
-                                                if zoomScale > 1.02 {
-                                                    lastImageOffset = imageOffset
-                                                } else if value.translation.width < -65 {
-                                                    changeImage(by: 1)
-                                                } else if value.translation.width > 65 {
-                                                    changeImage(by: -1)
-                                                } else {
-                                                    withAnimation(ChatMotion.layout) { dragTranslation = 0 }
-                                                }
-                                            }
-                                    )
+                                    .onEnded { value in
+                                        guard zoomScale <= 1.02 else { return }
+                                        if value.translation.width < -65 {
+                                            changeImage(by: 1)
+                                        } else if value.translation.width > 65 {
+                                            changeImage(by: -1)
+                                        } else {
+                                            withAnimation(ChatMotion.layout) { dragTranslation = 0 }
+                                        }
+                                    }
                             )
                             .onTapGesture(count: 2) {
                                 withAnimation(ChatMotion.layout) {
-                                    if zoomScale > 1.02 {
-                                        zoomScale = 1
-                                        lastZoomScale = 1
-                                        imageOffset = .zero
-                                        lastImageOffset = .zero
-                                    } else {
-                                        zoomScale = 2.4
-                                        lastZoomScale = 2.4
-                                    }
+                                    zoomScale = zoomScale > 1.02 ? 1 : 2.4
                                 }
                             }
+                            .frame(width: geometry.size.width - 32, height: geometry.size.height - 32)
+                            .padding(16)
                     } else {
                         ContentUnavailableView("无法显示图片", systemImage: "photo")
                     }
                 }
-                .padding(12)
             }
-            .navigationTitle(images.count > 1 ? "\(currentIndex + 1) / \(images.count)" : "图片预览")
+            .navigationTitle(images.count > 1 ? "\\(currentIndex + 1) / \\(images.count)" : "图片预览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
-            }
-            .overlay(alignment: .bottom) {
-                HStack(spacing: 7) {
-                    Image(systemName: "hand.draw")
-                    Text(zoomScale > 1.02 ? "拖动查看细节 · 双击还原" : "双指捏合缩放 · 左右滑动切换图片")
-                }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Macaron.secondary)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 9)
-                .background(.ultraThinMaterial, in: Capsule())
-                .padding(.bottom, 14)
             }
         }
     }
@@ -4073,9 +4028,6 @@ private struct PhotoPreviewView: View {
         withAnimation(ChatMotion.layout) {
             currentIndex = next
             zoomScale = 1
-            lastZoomScale = 1
-            imageOffset = .zero
-            lastImageOffset = .zero
             dragTranslation = 0
         }
     }
