@@ -713,7 +713,7 @@ private final class ChatModel: ObservableObject {
         } else {
             contacts = [ChatContact(name: identity.other, avatarData: identity.otherAvatarData, walletBalance: max(0, legacyOtherBalance ?? 1000))]
         }
-        selectedContactID = contacts.first?.id
+        selectedContactID = contacts.first(where: { $0.id != activePersonaID })?.id ?? contacts.first?.id
         if let storedPersona = UserDefaults.standard.string(forKey: "customchat.activePersona.v1"),
            let personaID = UUID(uuidString: storedPersona),
            contacts.contains(where: { $0.id == personaID && $0.isGroup != true }) {
@@ -731,7 +731,7 @@ private final class ChatModel: ObservableObject {
         }
 
         isSwitchingThread = true
-        messages = selectedContactID.flatMap { threadMessages[$0.uuidString] } ?? []
+        messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0)] ?? (activePersonaID == nil ? threadMessages[$0.uuidString] : nil) } ?? []
         isSwitchingThread = false
 
         if let data = UserDefaults.standard.data(forKey: callsKey),
@@ -778,11 +778,23 @@ private final class ChatModel: ObservableObject {
 
     func switchPersona(_ id: UUID?) {
         guard id == nil || contacts.contains(where: { $0.id == id && $0.isGroup != true }) else { return }
+        guard activePersonaID != id else { return }
+        persistCurrentThread()
         withAnimation(ChatMotion.layout) {
             activePersonaID = id
+            if selectedContactID == id || selectedContactID == nil {
+                selectedContactID = contacts.first(where: { $0.id != id })?.id
+            }
             activeRole = .me
             activeGroupSenderID = nil
+            isSwitchingThread = true
+            messages = selectedContactID.flatMap { threadMessages[threadKey(for: $0, personaID: id)] ?? (id == nil ? threadMessages[$0.uuidString] : nil) } ?? []
+            isSwitchingThread = false
         }
+    }
+
+    private func threadKey(for contactID: UUID, personaID: UUID? = nil) -> String {
+        "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
     }
 
     func updateActivePersonaAppearance(_ appearance: PersonaAppearance) {
@@ -867,7 +879,7 @@ private final class ChatModel: ObservableObject {
         persistCurrentThread()
         selectedContactID = id
         isSwitchingThread = true
-        messages = threadMessages[id.uuidString] ?? []
+        messages = threadMessages[threadKey(for: id)] ?? (activePersonaID == nil ? threadMessages[id.uuidString] : nil) ?? []
         isSwitchingThread = false
     }
 
@@ -919,6 +931,7 @@ private final class ChatModel: ObservableObject {
 
     func deleteContact(_ contact: ChatContact) {
         guard contacts.contains(where: { $0.id == contact.id }) else { return }
+        threadMessages.removeValue(forKey: threadKey(for: contact.id))
         threadMessages.removeValue(forKey: contact.id.uuidString)
         contacts.removeAll { $0.id == contact.id }
         if selectedContactID == contact.id {
@@ -932,7 +945,7 @@ private final class ChatModel: ObservableObject {
     }
 
     func preview(for contact: ChatContact) -> String {
-        let last = threadMessages[contact.id.uuidString]?.last
+        let last = threadMessages[threadKey(for: contact.id)]?.last ?? (activePersonaID == nil ? threadMessages[contact.id.uuidString]?.last : nil)
         guard let last else { return "开始你们的第一段对话" }
         if last.isWithdrawn { return "撤回了一条消息" }
         switch last.kind {
@@ -1113,7 +1126,7 @@ private final class ChatModel: ObservableObject {
 
     private func persistCurrentThread() {
         guard !isSwitchingThread, let selectedContactID else { return }
-        threadMessages[selectedContactID.uuidString] = messages
+        threadMessages[threadKey(for: selectedContactID)] = messages
         if let data = try? JSONEncoder().encode(threadMessages) {
             UserDefaults.standard.set(data, forKey: threadsKey)
         }
@@ -2014,7 +2027,8 @@ struct ContentView: View {
                         .padding(.horizontal, 5)
 
                     let filteredContacts = model.contacts.filter {
-                        searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText)
+                        $0.id != model.activePersonaID &&
+                        (searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText))
                     }
                     if filteredContacts.isEmpty {
                         EmptyHint(
@@ -2069,14 +2083,25 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Button {
+                    messageFocused = false
                     withAnimation(ChatMotion.layout) { showConversation = false }
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 19, weight: .medium))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(messageTextColor)
-                        .frame(width: 30, height: 42)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                Button { if model.currentContact?.isGroup == true { showCreateGroup = true } else { showFriendProfile = true } } label: { IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink) }.buttonStyle(FluidPressButtonStyle())
+                .buttonStyle(.plain)
+                .zIndex(2)
+                Button {
+                    if model.currentContact?.isGroup == true { showCreateGroup = true } else { showFriendProfile = true }
+                } label: {
+                    IdentityAvatar(data: model.avatar(for: .other), name: model.name(for: .other), size: 42, tint: Macaron.pink)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .zIndex(1)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.currentContact?.name ?? model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
