@@ -2499,8 +2499,15 @@ struct ContentView: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(model.calls) { call in
-                            CallHistoryRow(record: call, name: model.name(for: .other))
-                                .transition(.chatCinematic)
+                            CallHistoryRow(record: call, name: model.name(for: .other)) {
+                                withAnimation(ChatMotion.layout) {
+                                    model.calls.removeAll { $0.id == call.id }
+                                }
+                            }
+                            .transition(.asymmetric(
+                                insertion: .chatCinematic,
+                                removal: .scale(scale: 0.94, anchor: .trailing).combined(with: .opacity).combined(with: .move(edge: .trailing))
+                            ))
                             if call.id != model.calls.last?.id {
                                 Divider().overlay(Macaron.line).padding(.leading, 70)
                             }
@@ -3027,29 +3034,87 @@ private struct SettingsLine: View {
 private struct CallHistoryRow: View {
     let record: CallRecord
     let name: String
+    let onDelete: () -> Void
+    @State private var revealAmount: CGFloat = 0
+    @State private var dragStart: CGFloat = 0
+
+    private let deleteWidth: CGFloat = 82
 
     var body: some View {
-        HStack(spacing: 13) {
-            Image(systemName: record.isVideo ? "video" : "phone")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(record.isVideo ? Color(hex: 0xD99ABF) : Color(hex: 0x74AEE3))
-                .frame(width: 42, height: 42)
-                .background(record.isVideo ? Macaron.pink : Macaron.blue, in: Circle())
-            VStack(alignment: .leading, spacing: 5) {
-                Text(name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Macaron.ink)
-                Text("\(record.isVideo ? "视频通话" : "语音通话") · \(durationText(record.duration))")
-                    .font(.system(size: 12))
+        ZStack(alignment: .trailing) {
+            Button(role: .destructive, action: onDelete) {
+                VStack(spacing: 5) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("删除")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(width: deleteWidth)
+                .frame(maxHeight: .infinity)
+                .background(
+                    LinearGradient(
+                        colors: [Color(hex: 0xF29AA8), Color(hex: 0xE9788C)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(revealAmount < -12 ? 1 : 0)
+            .scaleEffect(revealAmount < -12 ? 1 : 0.88, anchor: .trailing)
+            .allowsHitTesting(revealAmount < -12)
+
+            HStack(spacing: 13) {
+                Image(systemName: record.isVideo ? "video" : "phone")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(record.isVideo ? Color(hex: 0xD99ABF) : Color(hex: 0x74AEE3))
+                    .frame(width: 42, height: 42)
+                    .background(record.isVideo ? Macaron.pink : Macaron.blue, in: Circle())
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                    Text("\(record.isVideo ? "视频通话" : "语音通话") · \(durationText(record.duration))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                Spacer()
+                Text(record.date, format: .dateTime.month(.twoDigits).day().hour().minute())
+                    .font(.system(size: 11))
                     .foregroundStyle(Macaron.secondary)
             }
-            Spacer()
-            Text(record.date, format: .dateTime.month(.twoDigits).day().hour().minute())
-                .font(.system(size: 11))
-                .foregroundStyle(Macaron.secondary)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Macaron.card)
+            .contentShape(Rectangle())
+            .offset(x: revealAmount)
+            .gesture(
+                DragGesture(minimumDistance: 12, coordinateSpace: .local)
+                    .onChanged { value in
+                        let horizontal = value.translation.width
+                        guard abs(horizontal) > abs(value.translation.height) else { return }
+                        let proposed = dragStart + horizontal
+                        revealAmount = min(0, max(-deleteWidth, proposed))
+                    }
+                    .onEnded { value in
+                        let horizontal = value.translation.width
+                        guard abs(horizontal) > abs(value.translation.height) else {
+                            withAnimation(ChatMotion.press) { revealAmount = 0 }
+                            return
+                        }
+                        let shouldReveal = revealAmount < -deleteWidth * 0.42 || horizontal < -deleteWidth * 0.55
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                            revealAmount = shouldReveal ? -deleteWidth : 0
+                        }
+                        dragStart = shouldReveal ? -deleteWidth : 0
+                    }
+            )
+            .animation(.spring(response: 0.34, dampingFraction: 0.78), value: revealAmount)
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 12)
+        .clipped()
     }
 
     private func durationText(_ seconds: Int) -> String {
