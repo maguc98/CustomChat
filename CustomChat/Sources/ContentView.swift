@@ -2935,7 +2935,7 @@ struct ContentView: View {
                     Image(systemName: "arrow.down.to.line")
                         .font(.system(size: isCompactConversation ? 13 : 15, weight: .medium))
                         .foregroundStyle(Macaron.secondary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: isCompactConversation ? 26 : 30, height: isCompactConversation ? 26 : 30)
                         .background(Color(hex: 0xF0F1F5), in: Circle())
                 }
                 .accessibilityLabel("滚动到聊天底部")
