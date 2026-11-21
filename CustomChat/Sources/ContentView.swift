@@ -3068,7 +3068,12 @@ struct ContentView: View {
         .padding(.horizontal, isCompactConversation ? 6 : 15)
         .padding(.top, 6)
         .padding(.bottom, 8)
-        .frame(maxWidth: .infinity)
+        // Anchor the composer to the actual hosting window width. In LiveContainer
+        // the proposed SwiftUI width can otherwise follow the intrinsic width of
+        // the horizontal identity scroller and push both edges off-screen.
+        .containerRelativeFrame(.horizontal)
+        .frame(minWidth: 0, maxWidth: .infinity)
+        .clipped()
         .background(Macaron.card)
         .background {
             GeometryReader { geometry in
