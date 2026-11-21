@@ -578,7 +578,14 @@ struct MomentComment: Identifiable, Codable {
     var author: String
     var text: String
     var date: Date
-    init(author: String, text: String) { id = UUID(); self.author = author; self.text = text; date = .now }
+    var replyToAuthor: String?
+    init(author: String, text: String, replyToAuthor: String? = nil) {
+        id = UUID()
+        self.author = author
+        self.text = text
+        self.date = .now
+        self.replyToAuthor = replyToAuthor
+    }
 }
 
 struct MomentPost: Identifiable, Codable {
@@ -4329,6 +4336,7 @@ private struct MomentCommentsSheet: View {
     @State private var draft = ""
     @State private var comments: [MomentComment]
     @State private var selectedAuthor: String
+    @State private var replyingTo: MomentComment?
     let authorOptions: [String]
     let onSend: (MomentComment) -> Void
 
@@ -4348,11 +4356,36 @@ private struct MomentCommentsSheet: View {
                             EmptyHint(symbol: "bubble.left", title: "还没有评论", subtitle: "来发表第一条评论吧。").padding(.top, 55)
                         } else {
                             ForEach(comments) { comment in
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(comment.author).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
-                                    Text(comment.text).font(.system(size: 14)).foregroundStyle(Macaron.ink)
+                                VStack(alignment: .leading, spacing: 7) {
+                                    HStack(spacing: 5) {
+                                        Text(comment.author)
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(Color(hex: 0x4F91D2))
+                                        if let target = comment.replyToAuthor, !target.isEmpty {
+                                            Text("回复")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(Macaron.secondary)
+                                            Text(target)
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundStyle(Color(hex: 0x4F91D2))
+                                        }
+                                        Spacer()
+                                        Button {
+                                            withAnimation(ChatMotion.layout) {
+                                                replyingTo = comment
+                                            }
+                                        } label: {
+                                            Label("回复", systemImage: "arrowshape.turn.up.left")
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundStyle(Color(hex: 0x4F91D2))
+                                        }
+                                    }
+                                    Text(comment.text)
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Macaron.ink)
                                 }
-                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Macaron.card, in: RoundedRectangle(cornerRadius: 14))
                                 .transition(.chatCinematic)
                             }
@@ -4390,20 +4423,46 @@ private struct MomentCommentsSheet: View {
                         }
                         Spacer()
                     }
+                    if let target = replyingTo {
+                        HStack(spacing: 6) {
+                            Text("正在回复")
+                                .foregroundStyle(Macaron.secondary)
+                            Text(target.author)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color(hex: 0x4F91D2))
+                            Spacer()
+                            Button {
+                                withAnimation(ChatMotion.layout) { replyingTo = nil }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(Macaron.secondary)
+                            }
+                        }
+                        .font(.system(size: 11))
+                    }
                     HStack(spacing: 9) {
-                        TextField("写下你的评论…", text: $draft, axis: .vertical)
-                            .lineLimit(1...4).padding(11)
+                        TextField(replyingTo.map { "回复 \($0.author)…" } ?? "写下你的评论…", text: $draft, axis: .vertical)
+                            .lineLimit(1...4)
+                            .padding(11)
                             .background(Macaron.card, in: Capsule())
                         Button {
-                        let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !value.isEmpty else { return }
-                        let comment = MomentComment(author: selectedAuthor, text: value)
-                        withAnimation(ChatMotion.layout) { comments.append(comment) }
-                        onSend(comment)
-                        draft = ""
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 29)).foregroundStyle(Color(hex: 0x5D9FE2))
-                        }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !value.isEmpty else { return }
+                            let comment = MomentComment(
+                                author: selectedAuthor,
+                                text: value,
+                                replyToAuthor: replyingTo?.author
+                            )
+                            withAnimation(ChatMotion.layout) { comments.append(comment) }
+                            onSend(comment)
+                            draft = ""
+                            replyingTo = nil
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 29))
+                                .foregroundStyle(Color(hex: 0x5D9FE2))
+                        }
+                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
                 .padding(12)
