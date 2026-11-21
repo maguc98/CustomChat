@@ -677,6 +677,7 @@ private final class ChatModel: ObservableObject {
         didSet { UserDefaults.standard.set(activePersonaID?.uuidString, forKey: "customchat.activePersona.v1") }
     }
     @Published private var friendIDsByAccount: [String: Set<String>] = [:] { didSet { persistFriendships() } }
+    @Published private var hiddenChatIDsByAccount: [String: Set<String>] = [:] { didSet { persistHiddenChats() } }
     @Published var myMoments: [MomentPost] = [] { didSet { persistMyMoments() } }
     @Published var walletBalance: Double = 1000 {
         didSet { UserDefaults.standard.set(walletBalance, forKey: walletKey) }
@@ -687,6 +688,7 @@ private final class ChatModel: ObservableObject {
     private let callsKey = "customchat.calls.v1"
     private let contactsKey = "customchat.contacts.v1"
     private let friendshipsKey = "customchat.friendships.v1"
+    private let hiddenChatsKey = "customchat.hiddenChats.v1"
     private let callsByAccountKey = "customchat.calls.byAccount.v1"
     private let myMomentsKey = "customchat.myMoments.v1"
     private let walletKey = "customchat.wallet.balance.v1"
@@ -775,6 +777,10 @@ private final class ChatModel: ObservableObject {
             }
             friendIDsByAccount = migrated
         }
+        if let data = defaults.data(forKey: hiddenChatsKey),
+           let saved = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            hiddenChatIDsByAccount = saved.mapValues { Set($0) }
+        }
         selectedContactID = friendContacts.first?.id
 
         if let data = UserDefaults.standard.data(forKey: threadsKey),
@@ -809,6 +815,7 @@ private final class ChatModel: ObservableObject {
         }
         persistContacts()
         persistFriendships()
+        persistHiddenChats()
         saveCalls()
         persistCurrentThread()
     }
@@ -847,6 +854,11 @@ private final class ChatModel: ObservableObject {
         }
         if ids.contains(mainAccountID.uuidString) { result.append(mainIdentityContact) }
         return result
+    }
+
+    var visibleChatContacts: [ChatContact] {
+        let hidden = hiddenChatIDsByAccount[activeAccountID.uuidString] ?? []
+        return friendContacts.filter { !hidden.contains($0.id.uuidString) }
     }
 
     private func accountContact(with id: UUID) -> ChatContact? {
@@ -1003,6 +1015,30 @@ private final class ChatModel: ObservableObject {
         isSwitchingThread = false
     }
 
+    func hideChat(for contactID: UUID) {
+        var hidden = hiddenChatIDsByAccount[activeAccountID.uuidString] ?? []
+        hidden.insert(contactID.uuidString)
+        hiddenChatIDsByAccount[activeAccountID.uuidString] = hidden
+    }
+
+    func clearChatHistory(for contactID: UUID) {
+        threadMessages.removeValue(forKey: threadKey(for: contactID, personaID: activePersonaID))
+        if activePersonaID == nil { threadMessages.removeValue(forKey: contactID.uuidString) }
+        if selectedContactID == contactID {
+            isSwitchingThread = true
+            messages = []
+            isSwitchingThread = false
+        }
+        persistAllThreads()
+    }
+
+    private func revealCurrentChat() {
+        guard let selectedContactID else { return }
+        var hidden = hiddenChatIDsByAccount[activeAccountID.uuidString] ?? []
+        guard hidden.remove(selectedContactID.uuidString) != nil else { return }
+        hiddenChatIDsByAccount[activeAccountID.uuidString] = hidden
+    }
+
     @discardableResult
     func addFriend(accountID: UUID) -> Bool {
         guard accountID != activeAccountID, accountContact(with: accountID) != nil else { return false }
@@ -1121,14 +1157,17 @@ private final class ChatModel: ObservableObject {
     func send(_ text: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
+        revealCurrentChat()
         messages.append(ChatMessage(text: value, role: activeRole, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
     }
 
     func sendVoice(duration: Double, waveform: [Double], text: String = "", recognizedText: String = "") {
+        revealCurrentChat()
         messages.append(ChatMessage(text: text, role: activeRole, kind: .voice, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar, voiceDuration: duration, waveform: waveform, voiceTranscript: recognizedText))
     }
 
     func sendImage(_ data: Data) {
+        revealCurrentChat()
         messages.append(ChatMessage(role: activeRole, imageData: data, kind: .image, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
     }
 
@@ -1145,6 +1184,7 @@ private final class ChatModel: ObservableObject {
             guard balance >= amount else { return false }
             updateWalletBalance(balance - amount, contactID: walletContact.id)
         }
+        revealCurrentChat()
         messages.append(ChatMessage(role: activeRole, kind: kind, amount: amount, note: note, senderName: outgoingSenderName, senderAvatarData: outgoingSenderAvatar))
         return true
     }
@@ -1192,6 +1232,7 @@ private final class ChatModel: ObservableObject {
     }
 
     func addCallMessage(isVideo: Bool, duration: Int) {
+        revealCurrentChat()
         let label = isVideo ? "视频通话" : "语音通话"
         let time = String(format: "%02d:%02d", duration / 60, duration % 60)
         messages.append(ChatMessage(role: .me, kind: .call, note: "\(label) · \(time)"))
@@ -1289,6 +1330,18 @@ private final class ChatModel: ObservableObject {
         UserDefaults.standard.set(data, forKey: friendshipsKey)
     }
 
+    private func persistHiddenChats() {
+        let stored = hiddenChatIDsByAccount.mapValues { Array($0).sorted() }
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        UserDefaults.standard.set(data, forKey: hiddenChatsKey)
+    }
+
+    private func persistAllThreads() {
+        if let data = try? JSONEncoder().encode(threadMessages) {
+            UserDefaults.standard.set(data, forKey: threadsKey)
+        }
+    }
+
     private func persistCurrentThread() {
         guard !isSwitchingThread, let selectedContactID else { return }
         threadMessages[threadKey(for: selectedContactID, personaID: activePersonaID)] = messages
@@ -1336,6 +1389,7 @@ private final class ChatModel: ObservableObject {
 
 private enum AppTab: String, CaseIterable {
     case chats = "聊天"
+    case contacts = "通讯录"
     case calls = "通话"
     case album = "朋友圈"
     case profile = "我的"
@@ -1343,6 +1397,7 @@ private enum AppTab: String, CaseIterable {
     var symbol: String {
         switch self {
         case .chats: return "bubble.left.and.bubble.right"
+        case .contacts: return "person.2"
         case .calls: return "phone"
         case .album: return "text.bubble"
         case .profile: return "person"
@@ -1596,6 +1651,8 @@ struct ContentView: View {
     @State private var walletTargetContactID: UUID?
     @State private var chatBackgroundImageSelection: PhotosPickerItem?
     @State private var contactPendingDeletion: ChatContact?
+    @State private var chatHistoryPendingDeletion: ChatContact?
+    @State private var showAccountManagement = false
     @State private var showAddContact = false
     @State private var showCreateGroup = false
     @StateObject private var voiceCapture = VoiceCaptureManager()
@@ -1857,6 +1914,13 @@ struct ContentView: View {
                 AccountQRCodeSheet(account: model.activeAccountContact)
             }
             .sheet(isPresented: $showChatSettings) { chatSettingsSheet }
+            .sheet(isPresented: $showAccountManagement) {
+                AccountManagementView(
+                    accounts: model.accountDirectory,
+                    currentAccountID: model.activeAccountID,
+                    onSelect: { id in model.switchPersona(id == model.mainAccountID ? nil : id) }
+                )
+            }
             .sheet(isPresented: $showCreateGroup) {
                 CreateGroupSheet(contacts: model.friendContacts.filter { $0.isGroup != true }) { name, ids in
                     let id = model.addGroup(name: name, memberIDs: ids)
@@ -1909,6 +1973,22 @@ struct ContentView: View {
                 Button("取消", role: .cancel) { contactPendingDeletion = nil }
             } message: {
                 Text("只会从当前账号的通讯录中删除；其他账号的好友关系不会改变。")
+            }
+            .confirmationDialog(
+                "删除与“\(chatHistoryPendingDeletion?.name ?? "好友")”的所有聊天记录？",
+                isPresented: Binding(
+                    get: { chatHistoryPendingDeletion != nil },
+                    set: { if !$0 { chatHistoryPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("删除全部聊天记录", role: .destructive) {
+                    if let contact = chatHistoryPendingDeletion { model.clearChatHistory(for: contact.id) }
+                    chatHistoryPendingDeletion = nil
+                }
+                Button("取消", role: .cancel) { chatHistoryPendingDeletion = nil }
+            } message: {
+                Text("只删除本账号与该好友的聊天消息、图片和附件，不会删除好友关系。")
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
             .overlay {
@@ -2161,6 +2241,7 @@ struct ContentView: View {
             Group {
                 switch selectedTab {
                 case .chats: chatListView
+                case .contacts: contactsView
                 case .calls: callsView
                 case .album: momentsFeedView
                 case .profile: profileView
@@ -2218,7 +2299,7 @@ struct ContentView: View {
                         .foregroundStyle(Macaron.secondary)
                         .padding(.horizontal, 5)
 
-                    let filteredContacts = model.friendContacts.filter {
+                    let filteredContacts = model.visibleChatContacts.filter {
                         $0.isGroup == true || $0.id != model.activeAccountID
                     }.filter {
                         searchText.isEmpty ||
@@ -2234,21 +2315,51 @@ struct ContentView: View {
                         .padding(.top, 50)
                     } else {
                         ForEach(filteredContacts) { contact in
-                            Button {
-                                model.selectContact(contact.id)
-                                withAnimation(ChatMotion.layout) { showConversation = true }
-                            } label: {
-                                ChatListRow(
-                                    name: contact.name,
-                                    preview: model.preview(for: contact),
-                                    time: " ",
-                                    avatarData: contact.avatarData,
-                                    tint: Macaron.pink,
-                                    isOnline: true,
-                                    accentColor: accentColor
-                                )
-                            }
-                            .buttonStyle(FluidPressButtonStyle())
+                            SwipeRevealRow(
+                                content: {
+                                    Button {
+                                        model.selectContact(contact.id)
+                                        withAnimation(ChatMotion.layout) { showConversation = true }
+                                    } label: {
+                                        ChatListRow(
+                                            name: contact.name,
+                                            preview: model.preview(for: contact),
+                                            time: " ",
+                                            avatarData: contact.avatarData,
+                                            tint: Macaron.pink,
+                                            isOnline: true,
+                                            accentColor: accentColor
+                                        )
+                                    }
+                                    .buttonStyle(FluidPressButtonStyle())
+                                },
+                                actions: {
+                                    HStack(spacing: 8) {
+                                        Button {
+                                            chatHistoryPendingDeletion = contact
+                                        } label: {
+                                            VStack(spacing: 5) {
+                                                Image(systemName: "trash")
+                                                Text("删除记录").font(.system(size: 10, weight: .semibold))
+                                            }
+                                            .foregroundStyle(.white)
+                                            .frame(width: 68, height: 66)
+                                            .background(Color(hex: 0xE58A9D), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        }
+                                        Button {
+                                            withAnimation(ChatMotion.layout) { model.hideChat(for: contact.id) }
+                                        } label: {
+                                            VStack(spacing: 5) {
+                                                Image(systemName: "eye.slash")
+                                                Text("隐藏").font(.system(size: 10, weight: .semibold))
+                                            }
+                                            .foregroundStyle(Macaron.ink)
+                                            .frame(width: 68, height: 66)
+                                            .background(Macaron.blue, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        }
+                                    }
+                                }
+                            )
                             .transition(.chatCinematic)
                             .contextMenu {
                                 Button {
@@ -2257,11 +2368,6 @@ struct ContentView: View {
                                 } label: {
                                     Label("编辑好友", systemImage: "pencil")
                                 }
-                                Button(role: .destructive) {
-                                    contactPendingDeletion = contact
-                                } label: {
-                                    Label("删除好友", systemImage: "trash")
-                                }
                             }
                         }
                         .animation(ChatMotion.layout, value: filteredContacts.map { $0.id })
@@ -2269,6 +2375,99 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.bottom, 18)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var contactsView: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("通讯录")
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .foregroundStyle(messageTextColor)
+                    Text("当前账号 · \(model.friendContacts.filter { $0.isGroup != true && $0.id != model.activeAccountID }.count) 位好友")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                }
+                Spacer()
+                Menu {
+                    Button("扫一扫添加好友", systemImage: "qrcode.viewfinder") { showVirtualScanner = true }
+                    Button("手动添加好友", systemImage: "person.badge.plus") { showAddContact = true }
+                } label: {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x438FDC))
+                        .frame(width: 42, height: 42)
+                        .background(Macaron.blue, in: Circle())
+                }
+            }
+            .padding(.horizontal, 19)
+            .padding(.top, 18)
+            .padding(.bottom, 13)
+
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(Macaron.secondary)
+                TextField("搜索通讯录", text: $searchText)
+                    .font(.system(size: 15))
+                    .foregroundStyle(messageTextColor)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .background(Color(hex: 0xEEF1F6), in: Capsule())
+            .padding(.horizontal, 18)
+            .padding(.bottom, 12)
+
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 8) {
+                    let friends = model.friendContacts.filter { $0.isGroup != true && $0.id != model.activeAccountID }.filter {
+                        searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) || ($0.accountNumber ?? "").localizedCaseInsensitiveContains(searchText)
+                    }
+                    if friends.isEmpty {
+                        EmptyHint(symbol: "person.2", title: "通讯录还是空的", subtitle: "添加好友后，他们会一直保留在通讯录中。")
+                            .padding(.top, 48)
+                    } else {
+                        ForEach(friends) { contact in
+                            SwipeRevealRow(
+                                content: {
+                                    Button {
+                                        model.selectContact(contact.id)
+                                        withAnimation(ChatMotion.layout) { showConversation = true }
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            IdentityAvatar(data: contact.avatarData, name: contact.name, size: 48, tint: Macaron.pink)
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(contact.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(messageTextColor)
+                                                Text("账号编号  \(contact.accountNumber ?? "未分配")")
+                                                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(Macaron.secondary)
+                                            }
+                                            Spacer()
+                                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Macaron.secondary)
+                                        }
+                                        .padding(12)
+                                        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                    }
+                                    .buttonStyle(FluidPressButtonStyle())
+                                },
+                                actions: {
+                                    Button(role: .destructive) { contactPendingDeletion = contact } label: {
+                                        VStack(spacing: 5) {
+                                            Image(systemName: "person.crop.circle.badge.xmark")
+                                            Text("删除好友").font(.system(size: 10, weight: .semibold))
+                                        }
+                                        .foregroundStyle(.white)
+                                        .frame(width: 76, height: 66)
+                                        .background(Color(hex: 0xE58A9D), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 20)
             }
             Spacer(minLength: 0)
         }
@@ -2832,6 +3031,10 @@ struct ContentView: View {
 
     private var profileSettingsRows: some View {
         VStack(spacing: 0) {
+            SettingsRow(symbol: "person.2.crop.square.stack", title: "账号管理", value: "\(model.accountDirectory.count) 个账号", tint: Color(hex: 0x83B9EF)) {
+                showAccountManagement = true
+            }
+            settingsDivider
             voiceModelSettingRow
             settingsDivider
             clearChatSettingRow
@@ -5684,6 +5887,97 @@ private struct VirtualScannerSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(28)
+    }
+}
+
+private struct AccountManagementView: View {
+    @Environment(\.dismiss) private var dismiss
+    let accounts: [ChatContact]
+    let currentAccountID: UUID
+    let onSelect: (UUID) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("每个账号拥有独立的资料、好友关系、聊天列表和钱包。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Macaron.secondary)
+                        .padding(.horizontal, 3)
+                    ForEach(accounts) { account in
+                        Button {
+                            onSelect(account.id)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                IdentityAvatar(data: account.avatarData, name: account.name, size: 50, tint: Macaron.blue)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(account.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Macaron.ink)
+                                    Text("账号编号  \(account.accountNumber ?? "未分配")")
+                                        .font(.system(size: 11, design: .monospaced)).foregroundStyle(Macaron.secondary)
+                                }
+                                Spacer()
+                                if account.id == currentAccountID {
+                                    Label("当前使用", systemImage: "checkmark.circle.fill")
+                                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color(hex: 0x65B99A))
+                                } else {
+                                    Image(systemName: "arrow.left.arrow.right").foregroundStyle(Macaron.secondary)
+                                }
+                            }
+                            .padding(13)
+                            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .buttonStyle(FluidPressButtonStyle())
+                    }
+                }
+                .padding(18)
+            }
+            .background(Macaron.background)
+            .navigationTitle("账号管理")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+}
+
+private struct SwipeRevealRow<Content: View, Actions: View>: View {
+    let content: Content
+    let actions: Actions
+    @State private var revealWidth: CGFloat = 0
+
+    init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.content = content()
+        self.actions = actions()
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            actions
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(revealWidth > 0 ? 1 : 0)
+            content
+                .offset(x: revealWidth)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 18)
+                        .onEnded { value in
+                            let horizontal = value.translation.width
+                            withAnimation(ChatMotion.layout) {
+                                if horizontal > 42 { revealWidth = 160 }
+                                else if horizontal < -35 { revealWidth = 0 }
+                                else if abs(horizontal) < 12 && revealWidth > 0 { revealWidth = 0 }
+                            }
+                        }
+                )
+                .onTapGesture {
+                    if revealWidth > 0 { withAnimation(ChatMotion.layout) { revealWidth = 0 } }
+                }
+        }
+        .clipped()
+        .animation(ChatMotion.layout, value: revealWidth)
     }
 }
 
