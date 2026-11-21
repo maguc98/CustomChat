@@ -851,7 +851,10 @@ private final class ChatModel: ObservableObject {
     var friendContacts: [ChatContact] {
         let ids = friendIDsByAccount[activeAccountID.uuidString] ?? []
         var result = contacts.filter { contact in
-            if contact.isGroup == true { return contact.ownerAccountID == activeAccountID }
+            if contact.isGroup == true {
+                let participants = Set((contact.memberIDs ?? []).map(\.uuidString) + [(contact.ownerAccountID ?? UUID()).uuidString])
+                return participants.contains(activeAccountID.uuidString)
+            }
             return ids.contains(contact.id.uuidString)
         }
         if ids.contains(mainAccountID.uuidString) { result.append(mainIdentityContact) }
@@ -870,8 +873,9 @@ private final class ChatModel: ObservableObject {
 
     var currentContact: ChatContact? {
         guard let selectedContactID else { return nil }
-        if let group = contacts.first(where: { $0.id == selectedContactID && $0.isGroup == true && $0.ownerAccountID == activeAccountID }) {
-            return group
+        if let group = contacts.first(where: { $0.id == selectedContactID && $0.isGroup == true }) {
+            let participants = Set((group.memberIDs ?? []).map(\.uuidString) + [(group.ownerAccountID ?? UUID()).uuidString])
+            if participants.contains(activeAccountID.uuidString) { return group }
         }
         guard friendAccountIDs.contains(selectedContactID),
               let contact = accountContact(with: selectedContactID) else { return nil }
@@ -921,7 +925,7 @@ private final class ChatModel: ObservableObject {
     private func threadKey(for contactID: UUID, personaID: UUID? = nil) -> String {
         let ownerID = personaID ?? mainAccountID
         if contacts.contains(where: { $0.id == contactID && $0.isGroup == true }) {
-            return "\(personaID?.uuidString ?? "self")::\(contactID.uuidString)"
+            return "group::\(contactID.uuidString)"
         }
         let ownerFriends = friendIDsByAccount[ownerID.uuidString] ?? []
         let contactFriends = friendIDsByAccount[contactID.uuidString] ?? []
@@ -972,9 +976,15 @@ private final class ChatModel: ObservableObject {
             normalized = Array(merged.values).sorted { $0.time < $1.time }
         }
 
+        let group = contacts.first(where: { $0.id == contactID && $0.isGroup == true })
         for index in normalized.indices {
             if normalized[index].senderAccountID == nil {
-                normalized[index].senderAccountID = normalized[index].role == .me ? ownerID : contactID
+                if let senderName = normalized[index].senderName,
+                   let matched = group.flatMap({ groupMembers($0).first(where: { $0.name == senderName }) }) {
+                    normalized[index].senderAccountID = matched.id
+                } else {
+                    normalized[index].senderAccountID = normalized[index].role == .me ? ownerID : contactID
+                }
             }
             normalized[index].role = normalized[index].senderAccountID == ownerID ? .me : .other
         }
@@ -984,8 +994,19 @@ private final class ChatModel: ObservableObject {
     }
 
     private func messageSenderAccountID(for role: ChatRole) -> UUID? {
-        guard currentContact?.isGroup != true else { return nil }
+        if currentContact?.isGroup == true { return activeGroupSenderID ?? activeAccountID }
         return role == .me ? activeAccountID : selectedContactID
+    }
+
+    func isMessageFromActiveSender(_ message: ChatMessage) -> Bool {
+        if currentContact?.isGroup == true {
+            return message.senderAccountID == (activeGroupSenderID ?? activeAccountID)
+        }
+        return message.role == activeRole
+    }
+
+    func isFriend(_ accountID: UUID) -> Bool {
+        friendIDsByAccount[activeAccountID.uuidString]?.contains(accountID.uuidString) == true
     }
 
     func updateActivePersonaAppearance(_ appearance: PersonaAppearance) {
@@ -1154,7 +1175,9 @@ private final class ChatModel: ObservableObject {
     }
 
     func groupMembers(_ contact: ChatContact) -> [ChatContact] {
-        (contact.memberIDs ?? []).compactMap { id in accountContact(with: id) }
+        var ids = contact.memberIDs ?? []
+        if let ownerID = contact.ownerAccountID, !ids.contains(ownerID) { ids.insert(ownerID, at: 0) }
+        return ids.compactMap { id in accountContact(with: id) }
     }
 
     func selectGroupSender(_ memberID: UUID?) {
@@ -1163,14 +1186,13 @@ private final class ChatModel: ObservableObject {
     }
 
     private var outgoingSenderName: String? {
-        guard currentContact?.isGroup == true, let id = activeGroupSenderID,
-              let member = accountContact(with: id) else { return nil }
-        return member.name
+        guard currentContact?.isGroup == true else { return nil }
+        return accountContact(with: activeGroupSenderID ?? activeAccountID)?.name
     }
 
     private var outgoingSenderAvatar: Data? {
-        guard currentContact?.isGroup == true, let id = activeGroupSenderID else { return nil }
-        return accountContact(with: id)?.avatarData
+        guard currentContact?.isGroup == true else { return nil }
+        return accountContact(with: activeGroupSenderID ?? activeAccountID)?.avatarData
     }
 
     func updateContact(_ updated: ChatContact) {
@@ -1730,6 +1752,7 @@ struct ContentView: View {
     @State private var isVoiceComposer = false
     @State private var showMicrophoneAlert = false
     @State private var showFriendProfile = false
+    @State private var selectedGroupMember: ChatContact?
     @State private var showChatSettings = false
     @State private var showVirtualScanner = false
     @State private var showMyQRCode = false
@@ -2007,10 +2030,15 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showFriendProfile) {
-                if let contact = model.currentContact {
+                if let contact = model.currentContact, contact.isGroup != true {
                     FriendProfileSheet(contact: contact) { updated in
                         model.updateContact(updated)
                     }
+                }
+            }
+            .sheet(item: $selectedGroupMember) { member in
+                GroupMemberProfileSheet(member: member, isFriend: model.isFriend(member.id)) {
+                    _ = model.addFriend(accountID: member.id)
                 }
             }
             .sheet(item: $imageCropRequest) { request in
@@ -2625,7 +2653,7 @@ struct ContentView: View {
                                     // The selected identity is always the outgoing/right-hand side.
                                     // Switching between "我" and "小羊" mirrors the whole conversation
                                     // without mutating the stored sender role.
-                                    isMe: message.role == model.activeRole,
+                                    isMe: model.isMessageFromActiveSender(message),
                                     fontSize: messageFontSize,
                                     outgoingColor: Color(hex: activeAppearance.outgoingBubbleHex),
                                     incomingColor: Color(hex: activeAppearance.incomingBubbleHex),
@@ -2755,11 +2783,22 @@ struct ContentView: View {
                         senderIdentityChip(name: model.activePersonaName, selected: model.activeGroupSenderID == nil, tint: accentColor)
                     }
                     .buttonStyle(FluidPressButtonStyle())
-                    ForEach(model.currentContact.map { model.groupMembers($0) } ?? []) { member in
+                    ForEach(model.currentContact.map { model.groupMembers($0).filter { $0.id != model.activeAccountID } } ?? []) { member in
                         Button {
-                            withAnimation(ChatMotion.layout) { model.selectGroupSender(member.id) }
+                            if model.isFriend(member.id) {
+                                withAnimation(ChatMotion.layout) { model.selectGroupSender(member.id) }
+                            } else {
+                                selectedGroupMember = member
+                            }
                         } label: {
-                            senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
+                            HStack(spacing: 5) {
+                                senderIdentityChip(name: member.name, selected: model.activeGroupSenderID == member.id, tint: Macaron.pink)
+                                if !model.isFriend(member.id) {
+                                    Text("非好友")
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundStyle(Color(hex: 0xD18A55))
+                                }
+                            }
                         }
                         .buttonStyle(FluidPressButtonStyle())
                     }
@@ -4992,6 +5031,47 @@ private struct AddContactSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+}
+
+private struct GroupMemberProfileSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let member: ChatContact
+    let isFriend: Bool
+    let onAddFriend: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                IdentityAvatar(data: member.avatarData, name: member.name, size: 86, tint: Macaron.pink)
+                Text(member.name).font(.system(size: 20, weight: .semibold)).foregroundStyle(Macaron.ink)
+                Text(member.bio.isEmpty ? "这个群成员还没有填写个性签名。" : member.bio)
+                    .font(.system(size: 13)).foregroundStyle(Macaron.secondary).multilineTextAlignment(.center)
+                Text(isFriend ? "已是你的好友" : "对方当前不是你的好友")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isFriend ? Color(hex: 0x65B99A) : Color(hex: 0xD18A55))
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Color(hex: 0xF4F6F9), in: Capsule())
+                if !isFriend {
+                    Button {
+                        onAddFriend()
+                        dismiss()
+                    } label: {
+                        Label("添加好友", systemImage: "person.badge.plus")
+                            .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 13)
+                            .background(Color(hex: 0x78B7F2), in: Capsule())
+                    }
+                    .buttonStyle(FluidPressButtonStyle())
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Macaron.background)
+            .navigationTitle("群成员资料").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+        .presentationDetents([.medium]).presentationDragIndicator(.visible).presentationCornerRadius(28)
     }
 }
 
