@@ -1906,10 +1906,12 @@ struct ContentView: View {
     @State private var showThemePicker = false
     @State private var showFontPicker = false
     @State private var showSoundPicker = false
-    @State private var conversationAvailableWidth: CGFloat = 0
+    @State private var composerAvailableWidth: CGFloat = 0
 
     private var isCompactConversation: Bool {
-        conversationAvailableWidth > 0 && conversationAvailableWidth < 360
+        // Measure the composer itself: the conversation container can be wider
+        // than the actual bottom input area after its own insets are applied.
+        composerAvailableWidth > 0 && composerAvailableWidth < 410
     }
 
     private var activeAppearance: PersonaAppearance { model.activePersonaAppearance }
@@ -2892,15 +2894,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(appBackgroundColor)
-        .background {
-            GeometryReader { geometry in
-                Color.clear
-                    .onAppear { conversationAvailableWidth = geometry.size.width }
-                    .onChange(of: geometry.size.width) { _, newWidth in
-                        conversationAvailableWidth = newWidth
-                    }
-            }
-        }
         .clipped()
         .padding(.bottom, messageFocused ? 8 : 0)
     }
@@ -3077,7 +3070,15 @@ struct ContentView: View {
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         .background(Macaron.card)
-        .clipped()
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { composerAvailableWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { _, newWidth in
+                        composerAvailableWidth = newWidth
+                    }
+            }
+        }
         .onDisappear {
             if voiceCapture.isRecording { voiceCapture.stop() }
         }
