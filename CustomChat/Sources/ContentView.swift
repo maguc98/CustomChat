@@ -2632,40 +2632,38 @@ struct ContentView: View {
                             .padding(.top, 48)
                     } else {
                         ForEach(friends) { contact in
-                            SwipeRevealRow(
-                                revealOnLeft: true,
-                                content: {
-                                    Button {
-                                        model.selectContact(contact.id)
-                                        withAnimation(ChatMotion.layout) { showConversation = true }
-                                    } label: {
-                                        HStack(spacing: 12) {
-                                            IdentityAvatar(data: contact.avatarData, name: contact.name, size: 48, tint: Macaron.pink)
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                Text(contact.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(messageTextColor)
-                                                Text("账号编号  \(contact.accountNumber ?? "未分配")")
-                                                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(Macaron.secondary)
-                                            }
-                                            Spacer()
-                                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Macaron.secondary)
-                                        }
-                                        .padding(12)
-                                        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            Button {
+                                model.selectContact(contact.id)
+                                withAnimation(ChatMotion.layout) { showConversation = true }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    IdentityAvatar(data: contact.avatarData, name: contact.name, size: 48, tint: Macaron.pink)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(contact.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(messageTextColor)
+                                        Text("账号编号  \(contact.accountNumber ?? "未分配")")
+                                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Macaron.secondary)
                                     }
-                                    .buttonStyle(FluidPressButtonStyle())
-                                },
-                                actions: {
-                                    Button(role: .destructive) { contactPendingDeletion = contact } label: {
-                                        VStack(spacing: 5) {
-                                            Image(systemName: "person.crop.circle.badge.xmark")
-                                            Text("删除好友").font(.system(size: 10, weight: .semibold))
-                                        }
-                                        .foregroundStyle(.white)
-                                        .frame(width: 76, height: 66)
-                                        .background(Color(hex: 0xE58A9D), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Macaron.secondary)
                                 }
-                            )
+                                .padding(12)
+                                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+                            .buttonStyle(FluidPressButtonStyle())
+                            .contextMenu {
+                                Button {
+                                    model.selectContact(contact.id)
+                                    showFriendProfile = true
+                                } label: {
+                                    Label("编辑备注", systemImage: "square.and.pencil")
+                                }
+                                Button(role: .destructive) {
+                                    contactPendingDeletion = contact
+                                } label: {
+                                    Label("删除好友", systemImage: "person.crop.circle.badge.xmark")
+                                }
+                            }
                         }
                     }
                 }
