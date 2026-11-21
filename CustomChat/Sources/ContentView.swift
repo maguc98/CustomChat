@@ -2110,146 +2110,164 @@ struct ContentView: View {
     private var profileView: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 18) {
-                HStack {
-                    Text("我的")
-                        .font(.system(size: 24, weight: .bold))
+                profileHeader
+                profileIdentityCard
+                profileWalletCard
+                profileSettingsCard
+                myMomentsProfileSection
+                Text("CustomChat · 本地社交")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Macaron.secondary)
+                    .padding(.bottom, 18)
+            }
+        }
+    }
+
+    private var profileHeader: some View {
+        HStack {
+            Text("我的")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Macaron.ink)
+            Spacer()
+            Button { showMyProfileEditor = true } label: {
+                Image(systemName: "pencil")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+                    .frame(width: 40, height: 40)
+                    .background(Macaron.blue, in: Circle())
+            }
+            .accessibilityLabel("编辑我的资料")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 22)
+    }
+
+    private var profileIdentityCard: some View {
+        Button { showMyProfileEditor = true } label: {
+            HStack(spacing: 14) {
+                IdentityAvatar(data: model.identity.meAvatarData, name: model.name(for: .me), size: 66, tint: Macaron.blue)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.name(for: .me))
+                        .contentTransition(.interpolate)
+                        .animation(ChatMotion.text, value: model.identity.me)
+                        .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(Macaron.ink)
-                    Spacer()
-                    Button { showMyProfileEditor = true } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x4F91D2))
-                            .frame(width: 40, height: 40)
-                            .background(Macaron.blue, in: Circle())
-                    }
-                    .accessibilityLabel("编辑我的资料")
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 22)
-
-                Button { showMyProfileEditor = true } label: {
-                    HStack(spacing: 14) {
-                        IdentityAvatar(data: model.identity.meAvatarData, name: model.name(for: .me), size: 66, tint: Macaron.blue)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(model.name(for: .me))
-                                .contentTransition(.interpolate)
-                                .animation(ChatMotion.text, value: model.identity.me)
-                                .font(.system(size: 19, weight: .semibold))
-                                .foregroundStyle(Macaron.ink)
-                            Text("编辑头像与个人资料")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Macaron.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Macaron.secondary)
-                    }
-                    .padding(17)
-                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
-                }
-                .buttonStyle(FluidPressButtonStyle())
-                .padding(.horizontal, 18)
-
-                VStack(alignment: .leading, spacing: 13) {
-                    HStack {
-                        Label("我的钱包", systemImage: "wallet.pass.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Macaron.ink)
-                        Spacer()
-                        Button("修改余额") {
-                            editingWalletRole = .me
-                            walletBalanceDraft = String(format: "%.2f", model.walletBalance)
-                            showBalanceEditor = true
-                        }
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x4F91D2))
-                    }
-                    Text("账户余额")
+                    Text("编辑头像与个人资料")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
-                    Text("¥\(model.walletBalance, specifier: "%.2f")")
-                        .contentTransition(.numericText())
-                        .animation(ChatMotion.text, value: model.walletBalance)
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(Macaron.ink)
-                    HStack {
-                        Text("\(model.walletContactForCurrentChat?.name ?? "好友")的账户余额")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Macaron.secondary)
-                        Spacer()
-                        Text("¥\(model.walletBalance(for: model.walletContactForCurrentChat), specifier: "%.2f")")
-                            .contentTransition(.numericText())
-                            .animation(ChatMotion.text, value: model.walletBalance(for: model.walletContactForCurrentChat))
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Macaron.ink)
-                        Button("修改") {
-                            editingWalletRole = .other
-                            editingWalletContactID = model.walletContactForCurrentChat?.id
-                            walletBalanceDraft = String(format: "%.2f", model.walletBalance(for: model.walletContactForCurrentChat))
-                            showBalanceEditor = true
-                        }
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x4F91D2))
-                    }
-                    .padding(.top, 2)
-                    Text("红包和转账会从发送身份的余额扣除，领取后计入接收身份余额。仅保存在本机，不涉及真实资金。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Macaron.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    LinearGradient(
-                        colors: [Color(hex: 0xE8F3FF), Color(hex: 0xF2EDFC)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-                )
-                .padding(.horizontal, 18)
-                .alert("修改钱包余额", isPresented: $showBalanceEditor) {
-                    TextField("输入余额", text: $walletBalanceDraft)
-                        .keyboardType(.decimalPad)
-                    Button("取消", role: .cancel) {}
-                    Button("保存") {
-                        if let value = Double(walletBalanceDraft), value >= 0 {
-                            if editingWalletRole == .me {
-                                model.walletBalance = value
-                            } else {
-                                model.updateWalletBalance(value, contactID: editingWalletContactID)
-                            }
-                        }
-                    }
-                } message: {
-                    Text(editingWalletRole == .me ? "修改我方身份的本地余额。" : "修改当前选中好友的独立钱包余额，其他好友不会受到影响。")
-                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Macaron.secondary)
+            }
+            .padding(17)
+            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+        }
+        .buttonStyle(FluidPressButtonStyle())
+        .padding(.horizontal, 18)
+    }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Button {
-                        withAnimation(ChatMotion.layout) {
-                            isProfileSettingsExpanded.toggle()
-                        }
-                    } label: {
-                        HStack {
-                            Text("设置")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(Macaron.ink)
-                            Spacer()
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Macaron.secondary)
-                                .rotationEffect(.degrees(isProfileSettingsExpanded ? 180 : 0))
-                        }
-                        .contentShape(Rectangle())
-                        .padding(.horizontal, 15)
-                        .padding(.top, 12)
-                        .padding(.bottom, isProfileSettingsExpanded ? 0 : 12)
+    private var profileWalletCard: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack {
+                Label("我的钱包", systemImage: "wallet.pass.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Macaron.ink)
+                Spacer()
+                Button("修改余额") {
+                    editingWalletRole = .me
+                    walletBalanceDraft = String(format: "%.2f", model.walletBalance)
+                    showBalanceEditor = true
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x4F91D2))
+            }
+            Text("账户余额")
+                .font(.system(size: 12))
+                .foregroundStyle(Macaron.secondary)
+            Text("¥\(model.walletBalance, specifier: "%.2f")")
+                .contentTransition(.numericText())
+                .animation(ChatMotion.text, value: model.walletBalance)
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundStyle(Macaron.ink)
+            HStack {
+                Text("\(model.walletContactForCurrentChat?.name ?? "好友")的账户余额")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Macaron.secondary)
+                Spacer()
+                Text("¥\(model.walletBalance(for: model.walletContactForCurrentChat), specifier: "%.2f")")
+                    .contentTransition(.numericText())
+                    .animation(ChatMotion.text, value: model.walletBalance(for: model.walletContactForCurrentChat))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Macaron.ink)
+                Button("修改") {
+                    editingWalletRole = .other
+                    editingWalletContactID = model.walletContactForCurrentChat?.id
+                    walletBalanceDraft = String(format: "%.2f", model.walletBalance(for: model.walletContactForCurrentChat))
+                    showBalanceEditor = true
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x4F91D2))
+            }
+            .padding(.top, 2)
+            Text("红包和转账会从发送身份的余额扣除，领取后计入接收身份余额。仅保存在本机，不涉及真实资金。")
+                .font(.system(size: 11))
+                .foregroundStyle(Macaron.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [Color(hex: 0xE8F3FF), Color(hex: 0xF2EDFC)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+        .padding(.horizontal, 18)
+        .alert("修改钱包余额", isPresented: $showBalanceEditor) {
+            TextField("输入余额", text: $walletBalanceDraft)
+                .keyboardType(.decimalPad)
+            Button("取消", role: .cancel) {}
+            Button("保存") {
+                if let value = Double(walletBalanceDraft), value >= 0 {
+                    if editingWalletRole == .me {
+                        model.walletBalance = value
+                    } else {
+                        model.updateWalletBalance(value, contactID: editingWalletContactID)
                     }
-                    .buttonStyle(FluidPressButtonStyle())
-                    if isProfileSettingsExpanded {
-                    VStack(spacing: 0) {
+                }
+            }
+        } message: {
+            Text(editingWalletRole == .me ? "修改我方身份的本地余额。" : "修改当前选中好友的独立钱包余额，其他好友不会受到影响。")
+        }
+    }
+
+    private var profileSettingsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(ChatMotion.layout) { isProfileSettingsExpanded.toggle() }
+            } label: {
+                HStack {
+                    Text("设置")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Macaron.secondary)
+                        .rotationEffect(.degrees(isProfileSettingsExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 15)
+                .padding(.top, 12)
+                .padding(.bottom, isProfileSettingsExpanded ? 0 : 12)
+            }
+            .buttonStyle(FluidPressButtonStyle())
+            if isProfileSettingsExpanded {
+                VStack(spacing: 0) {
                     SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
                         showBackgroundPicker = true
                     }
@@ -2274,169 +2292,156 @@ struct ContentView: View {
                     Button { showClearConfirmation = true } label: {
                         SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
                     }
-                    }
-                    .padding(.horizontal, 15)
-                    .padding(.bottom, 8)
-                    .transition(.chatCinematic)
-                    }
                 }
-                .padding(.vertical, 4)
-                .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .padding(.horizontal, 18)
-
-                VStack(spacing: 12) {
-                    HStack {
-                        Text("我的朋友圈")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Macaron.ink)
-                        Spacer()
-                        if !model.myMoments.isEmpty {
-                            Button("查看全部") { showAllMyMoments = true }
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x4F91D2))
-                        }
-                        Button {
-                            editingMyMomentID = nil
-                            myMomentDraft = ""
-                            showMyMomentEditor = true
-                        } label: {
-                            Label("发布", systemImage: "plus")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x4F91D2))
-                        }
-                    }
-                    .padding(.horizontal, 20)
-
-                    if model.myMoments.isEmpty {
-                        EmptyHint(symbol: "text.bubble", title: "还没有朋友圈", subtitle: "记录生活，发布第一条动态吧。")
-                            .padding(.vertical, 20)
-                    } else {
-                        ForEach(Array(model.myMoments.prefix(3))) { post in
-                            VStack(alignment: .leading, spacing: 9) {
-                                Text(post.text)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Macaron.ink)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                if let mediaData = post.mediaData {
-                                    MomentMediaView(data: mediaData, mediaType: post.mediaType)
-                                }
-                                Text(post.date, format: .dateTime.year().month().day().hour().minute())
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(Macaron.secondary)
-                            }
-                            .padding(15)
-                            .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .contextMenu {
-                                Button("编辑动态", systemImage: "pencil") {
-                                    editingMyMomentID = post.id
-                                    myMomentDraft = post.text
-                                    showMyMomentEditor = true
-                                }
-                                Button("删除动态", systemImage: "trash", role: .destructive) {
-                                    model.myMoments.removeAll { $0.id == post.id }
-                                }
-                            }
-                            .padding(.horizontal, 18)
-                            .transition(.chatCinematic)
-                        }
-                        .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
-                    }
-                }
-                .sheet(isPresented: $showAllMyMoments) {
-                    NavigationStack {
-                        ScrollView(showsIndicators: false) {
-                            LazyVStack(spacing: 12) {
-                                ForEach(model.myMoments) { post in
-                                    VStack(alignment: .leading, spacing: 9) {
-                                        if !post.text.isEmpty {
-                                            Text(post.text)
-                                                .font(.system(size: 14))
-                                                .foregroundStyle(Macaron.ink)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                        if let mediaData = post.mediaData {
-                                            MomentMediaView(data: mediaData, mediaType: post.mediaType)
-                                        }
-                                        Text(post.date, format: .dateTime.year().month().day().hour().minute())
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(Macaron.secondary)
-                                    }
-                                    .padding(15)
-                                    .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                    .transition(.chatCinematic)
-                                    .contextMenu {
-                                        Button("编辑动态", systemImage: "pencil") {
-                                            editingMyMomentID = post.id
-                                            myMomentDraft = post.text
-                                            showAllMyMoments = false
-                                            showMyMomentEditor = true
-                                        }
-                                        Button("删除动态", systemImage: "trash", role: .destructive) {
-                                            model.myMoments.removeAll { $0.id == post.id }
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(18)
-                            .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
-                        }
-                        .background(Macaron.background)
-                        .navigationTitle("我的朋友圈")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button {
-                                    editingMyMomentID = nil
-                                    myMomentDraft = ""
-                                    showAllMyMoments = false
-                                    showMyMomentEditor = true
-                                } label: {
-                                    Image(systemName: "plus")
-                                }
-                            }
-                        }
-                    }
-                    .presentationDragIndicator(.visible)
-                }
-                .sheet(item: Binding(
-                get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
-                set: { activeMomentForComments = $0?.id }
-            )) { target in
-                MomentCommentsSheet(
-                    comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
-                    onSend: { value in
-                        updateMoment(target.id) {
-                            var list = $0.comments ?? []
-                            list.append(MomentComment(author: model.identity.me, text: value))
-                            $0.comments = list
-                        }
-                    }
-                )
+                .padding(.horizontal, 15)
+                .padding(.bottom, 8)
+                .transition(.chatCinematic)
             }
-            .sheet(isPresented: $showMyMomentEditor) {
-                    MomentEditorSheet(
-                        title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
-                        initialText: myMomentDraft,
-                        initialMediaData: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaData },
-                        initialMediaType: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaType }
-                    ) { text, mediaData, mediaType in
-                        if let id = editingMyMomentID,
-                           let index = model.myMoments.firstIndex(where: { $0.id == id }) {
-                            model.myMoments[index].text = text
-                            model.myMoments[index].mediaData = mediaData
-                            model.myMoments[index].mediaType = mediaType
-                        } else {
-                            model.myMoments.insert(MomentPost(text: text, mediaData: mediaData, mediaType: mediaType), at: 0)
-                        }
+        }
+        .padding(.vertical, 4)
+        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 18)
+    }
+
+    private var myMomentsProfileSection: some View {
+        VStack(spacing: 12) {
+            myMomentsHeader
+            if model.myMoments.isEmpty {
+                EmptyHint(symbol: "text.bubble", title: "还没有朋友圈", subtitle: "记录生活，发布第一条动态吧。")
+                    .padding(.vertical, 20)
+            } else {
+                myMomentsPreviewRows
+            }
+        }
+        .sheet(isPresented: $showAllMyMoments) { myMomentsAllSheet }
+        .sheet(item: Binding(
+            get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
+            set: { activeMomentForComments = $0?.id }
+        )) { target in
+            MomentCommentsSheet(
+                comments: momentsFeedItems.first(where: { $0.id == target.id })?.post.comments ?? [],
+                onSend: { value in
+                    updateMoment(target.id) {
+                        var list = $0.comments ?? []
+                        list.append(MomentComment(author: model.identity.me, text: value))
+                        $0.comments = list
                     }
                 }
+            )
+        }
+        .sheet(isPresented: $showMyMomentEditor) { myMomentEditorSheet }
+    }
 
+    private var myMomentsHeader: some View {
+        HStack {
+            Text("我的朋友圈")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Macaron.ink)
+            Spacer()
+            if !model.myMoments.isEmpty {
+                Button("查看全部") { showAllMyMoments = true }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+            }
+            Button {
+                editingMyMomentID = nil
+                myMomentDraft = ""
+                showMyMomentEditor = true
+            } label: {
+                Label("发布", systemImage: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+            }
+        }
+        .padding(.horizontal, 20)
+    }
 
+    private var myMomentsPreviewRows: some View {
+        ForEach(Array(model.myMoments.prefix(3))) { post in
+            profileMomentCard(post: post, inAllList: false)
+                .padding(.horizontal, 18)
+                .transition(.chatCinematic)
+        }
+        .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
+    }
 
-                Text("CustomChat · 本地社交")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Macaron.secondary)
-                    .padding(.bottom, 18)
+    private var myMomentsAllSheet: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 12) {
+                    ForEach(model.myMoments) { post in
+                        profileMomentCard(post: post, inAllList: true)
+                    }
+                }
+                .padding(18)
+                .animation(ChatMotion.layout, value: model.myMoments.map { $0.id })
+            }
+            .background(Macaron.background)
+            .navigationTitle("我的朋友圈")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        editingMyMomentID = nil
+                        myMomentDraft = ""
+                        showAllMyMoments = false
+                        showMyMomentEditor = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private func profileMomentCard(post: MomentPost, inAllList: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            if !post.text.isEmpty {
+                Text(post.text)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Macaron.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let mediaData = post.mediaData {
+                MomentMediaView(data: mediaData, mediaType: post.mediaType)
+            }
+            Text(post.date, format: .dateTime.year().month().day().hour().minute())
+                .font(.system(size: 10))
+                .foregroundStyle(Macaron.secondary)
+        }
+        .padding(15)
+        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .transition(.chatCinematic)
+        .contextMenu {
+            Button("编辑动态", systemImage: "pencil") {
+                editingMyMomentID = post.id
+                myMomentDraft = post.text
+                if inAllList { showAllMyMoments = false }
+                showMyMomentEditor = true
+            }
+            Button("删除动态", systemImage: "trash", role: .destructive) {
+                withAnimation(ChatMotion.layout) {
+                    model.myMoments.removeAll { $0.id == post.id }
+                }
+            }
+        }
+    }
+
+    private var myMomentEditorSheet: some View {
+        MomentEditorSheet(
+            title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
+            initialText: myMomentDraft,
+            initialMediaData: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaData },
+            initialMediaType: editingMyMomentID.flatMap { id in model.myMoments.first(where: { $0.id == id })?.mediaType }
+        ) { text, mediaData, mediaType in
+            if let id = editingMyMomentID,
+               let index = model.myMoments.firstIndex(where: { $0.id == id }) {
+                model.myMoments[index].text = text
+                model.myMoments[index].mediaData = mediaData
+                model.myMoments[index].mediaType = mediaType
+            } else {
+                model.myMoments.insert(MomentPost(text: text, mediaData: mediaData, mediaType: mediaType), at: 0)
             }
         }
     }
@@ -2566,71 +2571,124 @@ struct ContentView: View {
 
     private var momentsFeedView: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("朋友圈").font(.system(size: 24, weight: .bold)).foregroundStyle(Macaron.ink)
-                    Spacer()
-                    Button { selectedTab = .profile; editingMyMomentID = nil; myMomentDraft = ""; DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { showMyMomentEditor = true } } label: {
-                        Label("发布", systemImage: "plus").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
-                    }
-                }.padding(.horizontal, 20).padding(.top, 20)
-                let feed = momentsFeedItems
-                if feed.isEmpty {
-                    EmptyHint(symbol: "text.bubble", title: "朋友圈还很安静", subtitle: "发布自己的动态，或到好友主页查看他们的分享。").padding(.top, 80)
+            LazyVStack(alignment: .leading, spacing: 14) {
+                momentsFeedHeader
+                if momentsFeedItems.isEmpty {
+                    EmptyHint(symbol: "text.bubble", title: "朋友圈还很安静", subtitle: "发布自己的动态，或到好友主页查看他们的分享。")
+                        .padding(.top, 80)
                 } else {
-                    ForEach(feed) { item in
-                        HStack(alignment: .top, spacing: 12) {
-                            IdentityAvatar(data: item.avatarData, name: item.author, size: 42, tint: Macaron.blue)
-                            VStack(alignment: .leading, spacing: 9) {
-                                Text(item.author).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
-                                if !item.post.text.isEmpty { Text(item.post.text).font(.system(size: 14)).foregroundStyle(Macaron.ink) }
-                                if let data = item.post.mediaData { MomentMediaView(data: data, mediaType: item.post.mediaType) }
-                                Text(item.post.date, format: .dateTime.year().month().day().hour().minute()).font(.system(size: 10)).foregroundStyle(Macaron.secondary)
-                                HStack(spacing: 0) {
-                                    Button {
-                                        updateMoment(item.id) { $0.isLiked = !($0.isLiked ?? false) }
-                                    } label: {
-                                        Label(item.post.isLiked == true ? "已赞" : "赞", systemImage: item.post.isLiked == true ? "heart.fill" : "heart")
-                                            .foregroundStyle(item.post.isLiked == true ? Color(hex: 0xE77D9B) : Macaron.secondary)
-                                            .scaleEffect(item.post.isLiked == true ? 1.05 : 1)
-                                    }
-                                    Spacer()
-                                    Button { activeMomentForComments = item.id } label: {
-                                        Label("评论 \(item.post.comments?.count ?? 0)", systemImage: "bubble.right")
-                                            .foregroundStyle(Macaron.secondary)
-                                    }
-                                    Spacer()
-                                    ShareLink(item: "\(item.author) 的朋友圈：\(item.post.text)") {
-                                        Label("转发", systemImage: "arrowshape.turn.up.right")
-                                            .foregroundStyle(Macaron.secondary)
-                                    }
-                                    .simultaneousGesture(TapGesture().onEnded {
-                                        updateMoment(item.id) { $0.shareCount = ($0.shareCount ?? 0) + 1 }
-                                    })
-                                }
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.top, 7)
-                                if let comments = item.post.comments, !comments.isEmpty {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        ForEach(comments) { comment in
-                                            HStack(alignment: .top, spacing: 4) {
-                                                Text(comment.author + "：").fontWeight(.semibold).foregroundStyle(Color(hex: 0x4F91D2))
-                                                Text(comment.text).foregroundStyle(Macaron.ink)
-                                            }.font(.system(size: 11))
-                                        }
-                                    }
-                                    .padding(9)
-                                    .background(Macaron.background, in: RoundedRectangle(cornerRadius: 10))
-                                    .transition(.chatCinematic)
-                                }
-                            }
-                        }
-                        .padding(15).background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous)).padding(.horizontal, 16)
-                        .transition(.chatCinematic)
+                    ForEach(momentsFeedItems) { item in
+                        momentFeedCard(item)
                     }
-                    .animation(ChatMotion.layout, value: feed.map { $0.id })
                 }
-            }.padding(.bottom, 20)
+            }
+            .padding(.bottom, 20)
+        }
+    }
+
+    private var momentsFeedHeader: some View {
+        HStack {
+            Text("朋友圈")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Macaron.ink)
+            Spacer()
+            Button {
+                selectedTab = .profile
+                editingMyMomentID = nil
+                myMomentDraft = ""
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { showMyMomentEditor = true }
+            } label: {
+                Label("发布", systemImage: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+    }
+
+    private func momentFeedCard(_ item: MomentFeedItem) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 12) {
+                IdentityAvatar(data: item.avatarData, name: item.author, size: 42, tint: Macaron.blue)
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(item.author)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x4F91D2))
+                    if !item.post.text.isEmpty {
+                        Text(item.post.text)
+                            .font(.system(size: 14))
+                            .foregroundStyle(Macaron.ink)
+                    }
+                    if let data = item.post.mediaData {
+                        MomentMediaView(data: data, mediaType: item.post.mediaType)
+                    }
+                    HStack(spacing: 8) {
+                        Text(item.post.date, format: .dateTime.year().month().day().hour().minute())
+                            .font(.system(size: 10))
+                            .foregroundStyle(Macaron.secondary)
+                        if (item.post.shareCount ?? 0) > 0 {
+                            Text("转发 \(item.post.shareCount ?? 0) 次")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Macaron.secondary)
+                        }
+                    }
+                }
+            }
+            momentInteractionBar(item)
+            momentCommentsPreview(item)
+        }
+        .padding(15)
+        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 16)
+        .transition(.chatCinematic)
+    }
+
+    private func momentInteractionBar(_ item: MomentFeedItem) -> some View {
+        HStack(spacing: 0) {
+            Button {
+                updateMoment(item.id) { $0.isLiked = !($0.isLiked ?? false) }
+            } label: {
+                Label(item.post.isLiked == true ? "已赞" : "赞", systemImage: item.post.isLiked == true ? "heart.fill" : "heart")
+                    .foregroundStyle(item.post.isLiked == true ? Color(hex: 0xE77D9B) : Macaron.secondary)
+                    .scaleEffect(item.post.isLiked == true ? 1.05 : 1)
+            }
+            Spacer()
+            Button { activeMomentForComments = item.id } label: {
+                Label("评论 \(item.post.comments?.count ?? 0)", systemImage: "bubble.right")
+                    .foregroundStyle(Macaron.secondary)
+            }
+            Spacer()
+            ShareLink(item: "\(item.author) 的朋友圈：\(item.post.text)") {
+                Label("转发", systemImage: "arrowshape.turn.up.right")
+                    .foregroundStyle(Macaron.secondary)
+            }
+            .simultaneousGesture(TapGesture().onEnded {
+                updateMoment(item.id) { $0.shareCount = ($0.shareCount ?? 0) + 1 }
+            })
+        }
+        .font(.system(size: 12, weight: .medium))
+        .padding(.top, 7)
+    }
+
+    @ViewBuilder private func momentCommentsPreview(_ item: MomentFeedItem) -> some View {
+        if let comments = item.post.comments, !comments.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(comments) { comment in
+                    HStack(alignment: .top, spacing: 4) {
+                        Text(comment.author + "：")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color(hex: 0x4F91D2))
+                        Text(comment.text)
+                            .foregroundStyle(Macaron.ink)
+                    }
+                    .font(.system(size: 11))
+                }
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Macaron.background, in: RoundedRectangle(cornerRadius: 10))
+            .transition(.chatCinematic)
         }
     }
 
