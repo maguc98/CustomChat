@@ -1923,52 +1923,37 @@ struct ContentView: View {
                                     }.foregroundStyle(Color(hex: 0xD96F7D)).padding(.horizontal, 9).padding(.vertical, 6).background(Color(hex: 0xFFF0F1), in: Capsule())
                                 }
                             }
-
                             TextField("说话后，识别文字会显示在这里…", text: $voiceCapture.transcript, axis: .vertical)
-                                .font(.system(size: 14)).foregroundStyle(Macaron.ink)
-                                .lineLimit(2...4).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.system(size: 14)).foregroundStyle(Macaron.ink).lineLimit(2...4).padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color(hex: 0xF7F9FC), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                                 .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color(hex: 0xE9EEF5), lineWidth: 1))
-
                             HStack(spacing: 12) {
                                 Button {
-                                    if voiceCapture.isRecording { voiceCapture.stop() }
-                                    else { voiceCapture.start { showMicrophoneAlert = true } }
+                                    if voiceCapture.isRecording { voiceCapture.stop() } else { voiceCapture.start { showMicrophoneAlert = true } }
                                 } label: {
                                     ZStack {
                                         Circle().fill(voiceCapture.isRecording ? Color(hex: 0xFCE9EC) : Color(hex: 0xEAF4FD)).frame(width: 48, height: 48)
-                                        Image(systemName: voiceCapture.isRecording ? "stop.fill" : "mic.fill")
-                                            .font(.system(size: 18, weight: .semibold))
+                                        Image(systemName: voiceCapture.isRecording ? "stop.fill" : "mic.fill").font(.system(size: 18, weight: .semibold))
                                             .foregroundStyle(voiceCapture.isRecording ? Color(hex: 0xD96F7D) : Color(hex: 0x4F91D2))
                                     }
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
-                                .accessibilityLabel(voiceCapture.isRecording ? "结束语音识别" : "开始语音识别")
-
+                                }.buttonStyle(.plain).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(alignment: .center, spacing: 3) {
                                         ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
                                             Capsule().fill(voiceCapture.isRecording ? Color(hex: 0x5799D9) : Color(hex: 0xA9C8E8).opacity(0.8))
                                                 .frame(width: 3, height: max(4, CGFloat(value) * 42))
                                         }
-                                    }
-                                    .frame(maxWidth: .infinity).frame(height: 44)
+                                    }.frame(maxWidth: .infinity).frame(height: 44)
                                     Text(voiceCapture.isRecording ? "正在捕捉声音" : voiceCapture.hasCapture ? "点击麦克风重新录制" : "点击麦克风开始说话")
                                         .font(.system(size: 10, weight: .medium)).foregroundStyle(Macaron.secondary)
-                                }
-                                .animation(.linear(duration: 0.045), value: voiceCapture.samples)
-
+                                }.animation(.linear(duration: 0.045), value: voiceCapture.samples)
                                 Button(action: sendVoiceMessage) {
                                     Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
                                         .frame(width: 42, height: 42).background(Color(hex: 0x5799D9), in: Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
-                                .opacity(voiceCapture.hasCapture && !voiceCapture.isFinalizing ? 1 : 0.38)
-                                .accessibilityLabel("发送语音消息")
+                                }.buttonStyle(.plain).disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
+                                    .opacity(voiceCapture.hasCapture && !voiceCapture.isFinalizing ? 1 : 0.38)
                             }
-
                             HStack {
                                 Button {
                                     if voiceCapture.isRecording { voiceCapture.stop() }
@@ -1984,74 +1969,13 @@ struct ContentView: View {
                                     voiceCapture.transcript = ""
                                     voiceCapture.start { showMicrophoneAlert = true }
                                 } label: { Text("重新开始").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2)) }
-                                .buttonStyle(.plain)
-                                .disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                .buttonStyle(.plain).disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
                             }
                         }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(hex: 0xE7EDF4), lineWidth: 1))
                         .shadow(color: Color(hex: 0x9EB5CE).opacity(0.10), radius: 14, x: 0, y: 5)
-                    } else {
-                                        voiceCapture.start { showMicrophoneAlert = true }
-                                    }
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        HStack(alignment: .center, spacing: 2) {
-                                            ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
-                                                Capsule()
-                                                    .fill(Color(hex: 0x5799D9))
-                                                    .frame(width: 2.5, height: max(5, CGFloat(value) * 32))
-                                            }
-                                        }
-                                        .frame(height: 38)
-                                        Spacer(minLength: 0)
-                                        Text(voiceCapture.isPreparing ? "正在准备本地模型" :
-                                                voiceCapture.isRecording ? "点按声纹结束" :
-                                                voiceCapture.hasCapture ? "重新录制" : "点击开始说话")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .lineLimit(1)
-                                    }
-                                    .foregroundStyle(Color(hex: 0x5799D9))
-                                    .padding(.horizontal, 12)
-                                    .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(Macaron.blue.opacity(0.62), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
-                                .accessibilityLabel(voiceCapture.isRecording ? "结束语音识别" : "开始语音识别")
-
-                                Button(action: sendVoiceMessage) {
-                                    Image(systemName: "arrow.up")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 40, height: 40)
-                                        .background(accentColor, in: Circle())
-                                }
-                                .disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
-                                .opacity(voiceCapture.hasCapture && !voiceCapture.isFinalizing ? 1 : 0.38)
-                                .accessibilityLabel("发送语音消息")
-
-                                Button {
-                                    if voiceCapture.isRecording { voiceCapture.stop() }
-                                    withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
-                                } label: {
-                                    Image(systemName: "keyboard")
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(Macaron.secondary)
-                                        .frame(width: 36, height: 36)
-                                        .background(Macaron.background, in: Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("切换文字输入")
-                            }
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Color(hex: 0xE6EAF1), lineWidth: 1))
                     } else {
                         HStack(spacing: 8) {
                             TextField("输入消息...", text: $draft, axis: .vertical)
