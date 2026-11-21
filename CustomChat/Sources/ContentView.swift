@@ -18,7 +18,7 @@ enum ChatRole: String, CaseIterable, Codable {
 
 enum ChatMessageKind: String, Codable { case text, image, redPacket, transfer, call, voice }
 
-private let waveformSampleCount = 30
+private let waveformSampleCount = 40
 
 final class VoiceCaptureManager: ObservableObject {
     @Published private(set) var samples = Array(repeating: 0.075, count: waveformSampleCount)
@@ -259,7 +259,7 @@ final class VoiceCaptureManager: ObservableObject {
             smoothedLevel = 0.075
             samples = Array(repeating: 0.075, count: waveformSampleCount)
 
-            input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+            input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
                 guard let self, let converter = self.converter, let outputFormat = self.outputFormat else { return }
 
                 let ratio = outputFormat.sampleRate / buffer.format.sampleRate
@@ -301,6 +301,19 @@ final class VoiceCaptureManager: ObservableObject {
                 let amplified = pow(max(rms, Double(peak) * 0.20), 0.62) * 3.6
                 let level = min(1, max(0.075, amplified))
 
+                // Drive the live waveform directly from the audio tap, not from
+                // the slower ASR decoder queue. 1024-frame buffers keep it responsive.
+                DispatchQueue.main.async {
+                    guard self.isRecording || self.isPreparing else { return }
+                    let smoothing = level > self.smoothedLevel ? 0.78 : 0.38
+                    self.smoothedLevel += (level - self.smoothedLevel) * smoothing
+                    self.samples.append(self.smoothedLevel)
+                    if self.samples.count > waveformSampleCount {
+                        self.samples.removeFirst(self.samples.count - waveformSampleCount)
+                    }
+                    self.captured.append(self.smoothedLevel)
+                }
+
                 self.inferenceQueue.async {
                     guard let recognizer = self.recognizer else { return }
                     recognizer.acceptWaveform(samples: audio, sampleRate: 16_000)
@@ -322,13 +335,6 @@ final class VoiceCaptureManager: ObservableObject {
                         .joined()
                     DispatchQueue.main.async {
                         guard self.isRecording else { return }
-                        let smoothing = level > self.smoothedLevel ? 0.68 : 0.30
-                        self.smoothedLevel += (level - self.smoothedLevel) * smoothing
-                        self.samples.append(self.smoothedLevel)
-                        if self.samples.count > waveformSampleCount {
-                            self.samples.removeFirst(self.samples.count - waveformSampleCount)
-                        }
-                        self.captured.append(self.smoothedLevel)
                         self.transcript = currentText
                     }
                 }
@@ -1887,47 +1893,96 @@ struct ContentView: View {
 
                 Group {
                     if isVoiceComposer {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 7) {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0x5799D9))
-                                Text("语音转文字")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Macaron.ink)
-                                Spacer()
-                                HStack(spacing: 5) {
-                                    Circle()
-                                        .fill(voiceCapture.isRecording ? Color(hex: 0xE87986) : Color(hex: 0x8C98A8))
-                                        .frame(width: 6, height: 6)
-                                    Text(voiceCapture.isPreparing ? voiceCapture.modelStatus :
-                                            voiceCapture.isRecording ? "正在聆听" :
-                                            voiceCapture.isFinalizing ? "正在整理文字" :
-                                            voiceCapture.hasCapture ? "识别完成" : "本地离线识别")
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(Macaron.secondary)
-                                        .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 13) {
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    Circle().fill(Color(hex: 0xEAF4FD)).frame(width: 30, height: 30)
+                                    Image(systemName: "waveform").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2))
                                 }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(Macaron.background, in: Capsule())
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("语音输入").font(.system(size: 14, weight: .semibold)).foregroundStyle(Macaron.ink)
+                                    Text(voiceCapture.isPreparing ? "正在准备离线模型" : voiceCapture.isRecording ? "正在聆听 · 点击停止" : voiceCapture.isFinalizing ? "正在整理识别结果" : voiceCapture.hasCapture ? "识别完成，可编辑文字" : "中文离线识别")
+                                        .font(.system(size: 10, weight: .medium)).foregroundStyle(Macaron.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                if voiceCapture.isRecording {
+                                    HStack(spacing: 5) {
+                                        Circle().fill(Color(hex: 0xE87986)).frame(width: 6, height: 6)
+                                        Text("LIVE").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(0.7)
+                                    }.foregroundStyle(Color(hex: 0xD96F7D)).padding(.horizontal, 9).padding(.vertical, 6).background(Color(hex: 0xFFF0F1), in: Capsule())
+                                }
                             }
 
                             TextField("说话后，识别文字会显示在这里…", text: $voiceCapture.transcript, axis: .vertical)
-                                .font(.system(size: 14))
-                                .foregroundStyle(Macaron.ink)
-                                .lineLimit(2...4)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Macaron.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color(hex: 0xE6EAF1), lineWidth: 1))
+                                .font(.system(size: 14)).foregroundStyle(Macaron.ink)
+                                .lineLimit(2...4).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(hex: 0xF7F9FC), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color(hex: 0xE9EEF5), lineWidth: 1))
 
-                            HStack(spacing: 10) {
+                            HStack(spacing: 12) {
                                 Button {
-                                    if voiceCapture.isRecording {
-                                        voiceCapture.stop()
-                                    } else {
+                                    if voiceCapture.isRecording { voiceCapture.stop() }
+                                    else { voiceCapture.start { showMicrophoneAlert = true } }
+                                } label: {
+                                    ZStack {
+                                        Circle().fill(voiceCapture.isRecording ? Color(hex: 0xFCE9EC) : Color(hex: 0xEAF4FD)).frame(width: 48, height: 48)
+                                        Image(systemName: voiceCapture.isRecording ? "stop.fill" : "mic.fill")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundStyle(voiceCapture.isRecording ? Color(hex: 0xD96F7D) : Color(hex: 0x4F91D2))
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                                .accessibilityLabel(voiceCapture.isRecording ? "结束语音识别" : "开始语音识别")
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(alignment: .center, spacing: 3) {
+                                        ForEach(Array(voiceCapture.samples.enumerated()), id: \.offset) { _, value in
+                                            Capsule().fill(voiceCapture.isRecording ? Color(hex: 0x5799D9) : Color(hex: 0xA9C8E8).opacity(0.8))
+                                                .frame(width: 3, height: max(4, CGFloat(value) * 42))
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity).frame(height: 44)
+                                    Text(voiceCapture.isRecording ? "正在捕捉声音" : voiceCapture.hasCapture ? "点击麦克风重新录制" : "点击麦克风开始说话")
+                                        .font(.system(size: 10, weight: .medium)).foregroundStyle(Macaron.secondary)
+                                }
+                                .animation(.linear(duration: 0.045), value: voiceCapture.samples)
+
+                                Button(action: sendVoiceMessage) {
+                                    Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                                        .frame(width: 42, height: 42).background(Color(hex: 0x5799D9), in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!voiceCapture.hasCapture || voiceCapture.isFinalizing)
+                                .opacity(voiceCapture.hasCapture && !voiceCapture.isFinalizing ? 1 : 0.38)
+                                .accessibilityLabel("发送语音消息")
+                            }
+
+                            HStack {
+                                Button {
+                                    if voiceCapture.isRecording { voiceCapture.stop() }
+                                    voiceCapture.transcript = ""
+                                    withAnimation(.easeInOut(duration: 0.18)) { isVoiceComposer = false }
+                                } label: { Text("取消").font(.system(size: 12, weight: .medium)).foregroundStyle(Macaron.secondary) }
+                                .buttonStyle(.plain)
+                                Spacer()
+                                Text("录音仅在本机处理").font(.system(size: 10)).foregroundStyle(Macaron.secondary.opacity(0.85))
+                                Spacer()
+                                Button {
+                                    if voiceCapture.isRecording { voiceCapture.stop() }
+                                    voiceCapture.transcript = ""
+                                    voiceCapture.start { showMicrophoneAlert = true }
+                                } label: { Text("重新开始").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0x4F91D2)) }
+                                .buttonStyle(.plain)
+                                .disabled(voiceCapture.isPreparing || voiceCapture.isFinalizing)
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(hex: 0xE7EDF4), lineWidth: 1))
+                        .shadow(color: Color(hex: 0x9EB5CE).opacity(0.10), radius: 14, x: 0, y: 5)
+                    } else {
                                         voiceCapture.start { showMicrophoneAlert = true }
                                     }
                                 } label: {
