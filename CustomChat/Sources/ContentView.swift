@@ -2717,31 +2717,38 @@ struct ContentView: View {
                     Text(model.currentContact?.name ?? model.name(for: .other))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(messageTextColor)
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Circle().fill(Color(hex: 0x58C994)).frame(width: 7, height: 7)
-                        Text(model.currentContact?.isGroup == true ? "群聊 · \(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天")
-                            .font(.system(size: 13, weight: .medium))
+                            .fixedSize()
+                        Text(model.currentContact?.isGroup == true ? "群聊 · \\(model.groupMembers(model.currentContact!).count) 位好友 · 本地聊天" : "本地聊天")
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Macaron.secondary)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .fixedSize(horizontal: true, vertical: false)
+                            .truncationMode(.tail)
+                            .minimumScaleFactor(0.72)
                     }
-                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 }
-                Spacer()
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(0)
+                Spacer(minLength: 2)
                 Button { beginCall(video: false) } label: {
-                    Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(messageTextColor).frame(width: 34, height: 40)
+                    Image(systemName: "phone").font(.system(size: 18)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
                 }
+                .fixedSize()
                 .accessibilityLabel("语音通话")
                 Button { beginCall(video: true) } label: {
-                    Image(systemName: "video").font(.system(size: 20)).foregroundStyle(messageTextColor).frame(width: 34, height: 40)
+                    Image(systemName: "video").font(.system(size: 19)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
                 }
+                .fixedSize()
                 .accessibilityLabel("视频通话")
                 Button { showChatSettings = true } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).foregroundStyle(messageTextColor).frame(width: 30, height: 40)
+                    Image(systemName: "ellipsis").font(.system(size: 19, weight: .semibold)).foregroundStyle(messageTextColor).frame(width: 26, height: 40)
                 }
+                .fixedSize()
             }
-            .padding(.horizontal, 16)
+            .frame(minWidth: 0, maxWidth: .infinity)
+            .padding(.horizontal, 8)
             .padding(.top, 7)
             .padding(.bottom, 7)
             .background(Macaron.card)
