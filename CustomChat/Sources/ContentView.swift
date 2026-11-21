@@ -1790,6 +1790,18 @@ struct ContentView: View {
                     otherAvatarSelection = nil
                 }
             }
+            .onChange(of: chatBackgroundImageSelection) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let compact = compactImageData(data) {
+                        var appearance = model.activePersonaAppearance
+                        appearance.chatBackgroundImageData = compact
+                        model.updateActivePersonaAppearance(appearance)
+                    }
+                    chatBackgroundImageSelection = nil
+                }
+            }
     }
 
     private var preferenceDialogs: some View {
@@ -2302,21 +2314,21 @@ struct ContentView: View {
     }
 
     private var profileIdentityCard: some View {
-        Button { showMyProfileEditor = true } label: {
+        Button { showPersonaSwitcher = true } label: {
             HStack(spacing: 14) {
-                IdentityAvatar(data: model.identity.meAvatarData, name: model.name(for: .me), size: 66, tint: Macaron.blue)
+                IdentityAvatar(data: model.activePersonaAvatar, name: model.activePersonaName, size: 66, tint: Macaron.blue)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(model.name(for: .me))
+                    Text(model.activePersonaName)
                         .contentTransition(.interpolate)
-                        .animation(ChatMotion.text, value: model.identity.me)
+                        .animation(ChatMotion.text, value: model.activePersonaName)
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(Macaron.ink)
-                    Text("编辑头像与个人资料")
+                    Text(model.activePersonaID == nil ? "当前账号 · 点击切换身份" : "好友账号 · 点击切换身份")
                         .font(.system(size: 12))
                         .foregroundStyle(Macaron.secondary)
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.down")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Macaron.secondary)
             }
@@ -2336,38 +2348,57 @@ struct ContentView: View {
                 Spacer()
                 Button("修改余额") {
                     editingWalletRole = .me
-                    walletBalanceDraft = String(format: "%.2f", model.walletBalance)
+                    walletBalanceDraft = String(format: "%.2f", model.activePersonaWalletBalance())
                     showBalanceEditor = true
                 }
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x4F91D2))
             }
-            Text("账户余额")
+            Text("当前账号余额")
                 .font(.system(size: 12))
                 .foregroundStyle(Macaron.secondary)
-            Text("¥\(model.walletBalance, specifier: "%.2f")")
+            Text("¥\(model.activePersonaWalletBalance(), specifier: "%.2f")")
                 .contentTransition(.numericText())
-                .animation(ChatMotion.text, value: model.walletBalance)
+                .animation(ChatMotion.text, value: model.activePersonaWalletBalance())
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundStyle(Macaron.ink)
-            HStack {
-                Text("\(model.walletContactForCurrentChat?.name ?? "好友")的账户余额")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Macaron.secondary)
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(model.contacts.filter { $0.isGroup != true && $0.id != model.activePersonaID }) { contact in
+                        Button {
+                            withAnimation(ChatMotion.layout) { walletTargetContactID = contact.id }
+                        } label: {
+                            if walletTargetContact?.id == contact.id {
+                                Label(contact.name, systemImage: "checkmark")
+                            } else {
+                                Text(contact.name)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("\(walletTargetContact?.name ?? "选择好友")的账户余额")
+                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+                }
                 Spacer()
-                Text("¥\(model.walletBalance(for: model.walletContactForCurrentChat), specifier: "%.2f")")
+                Text("¥\(model.walletBalance(for: walletTargetContact), specifier: "%.2f")")
                     .contentTransition(.numericText())
-                    .animation(ChatMotion.text, value: model.walletBalance(for: model.walletContactForCurrentChat))
+                    .animation(ChatMotion.text, value: model.walletBalance(for: walletTargetContact))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(Macaron.ink)
                 Button("修改") {
                     editingWalletRole = .other
-                    editingWalletContactID = model.walletContactForCurrentChat?.id
-                    walletBalanceDraft = String(format: "%.2f", model.walletBalance(for: model.walletContactForCurrentChat))
+                    editingWalletContactID = walletTargetContact?.id
+                    walletBalanceDraft = String(format: "%.2f", model.walletBalance(for: walletTargetContact))
                     showBalanceEditor = true
                 }
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x4F91D2))
+                .disabled(walletTargetContact == nil)
             }
             .padding(.top, 2)
             Text("红包和转账会从发送身份的余额扣除，领取后计入接收身份余额。仅保存在本机，不涉及真实资金。")
@@ -2393,14 +2424,14 @@ struct ContentView: View {
             Button("保存") {
                 if let value = Double(walletBalanceDraft), value >= 0 {
                     if editingWalletRole == .me {
-                        model.walletBalance = value
+                        model.setActivePersonaWalletBalance(value)
                     } else {
                         model.updateWalletBalance(value, contactID: editingWalletContactID)
                     }
                 }
             }
         } message: {
-            Text(editingWalletRole == .me ? "修改我方身份的本地余额。" : "修改当前选中好友的独立钱包余额，其他好友不会受到影响。")
+            Text(editingWalletRole == .me ? "修改当前账号的独立本地余额。" : "修改已选择好友的本地余额，不影响其他账号。")
         }
     }
 
@@ -2942,13 +2973,13 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("聊天外观") {
-                    Picker("聊天背景", selection: $backgroundOption) {
+                    Picker("聊天背景", selection: Binding(get: { backgroundOption }, set: { backgroundOption = $0 })) {
                         ForEach(["雾蓝白", "奶油白", "淡粉", "薄荷绿"], id: \.self) { Text($0) }
                     }
-                    Picker("主题颜色", selection: $themeOption) {
+                    Picker("主题颜色", selection: Binding(get: { themeOption }, set: { themeOption = $0 })) {
                         ForEach(["浅蓝", "樱花粉", "薄荷绿", "薰衣草紫"], id: \.self) { Text($0) }
                     }
-                    Picker("文字大小", selection: $fontOption) {
+                    Picker("文字大小", selection: Binding(get: { fontOption }, set: { fontOption = $0 })) {
                         ForEach(["偏小", "标准", "偏大"], id: \.self) { Text($0) }
                     }
                 }
@@ -3033,7 +3064,7 @@ struct ContentView: View {
                 .onAppear { voiceCapture.refreshModelStatus() }
 
                 Section("消息提醒") {
-                    Picker("消息提醒", selection: $soundOption) {
+                    Picker("消息提醒", selection: Binding(get: { soundOption }, set: { soundOption = $0 })) {
                         ForEach(["轻柔", "清脆", "关闭"], id: \.self) { Text($0) }
                     }
                 }
@@ -3061,50 +3092,91 @@ struct ContentView: View {
     private var myProfileEditor: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 16) {
                     identityEditor(
-                        title: "我的资料",
-                        name: identityNameBinding(for: .me),
-                        avatarData: model.identity.meAvatarData,
+                        title: "当前账号资料",
+                        name: activePersonaNameBinding,
+                        avatarData: model.activePersonaAvatar,
                         selection: $myAvatarSelection,
                         tint: Macaron.blue
                     )
-                    Text("这里只编辑你自己的昵称和头像，不会修改任何好友资料。")
-                        .font(.system(size: 12))
+                    personaAppearanceEditor
+                    Text("昵称、头像、颜色和聊天背景只保存在当前账号下。切换账号不会覆盖其他角色的设置。")
+                        .font(.system(size: 11))
                         .foregroundStyle(Macaron.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(18)
             }
-            .background(Macaron.background)
-            .navigationTitle("我的资料")
+            .background(appBackgroundColor)
+            .navigationTitle("编辑账号 · \(model.activePersonaName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
-                        model.persistIdentity()
-                        showMyProfileEditor = false
-                    }
-                    .fontWeight(.semibold)
+                    Button("完成") { showMyProfileEditor = false }
+                        .fontWeight(.semibold)
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
     }
 
-    private func identityNameBinding(for role: ChatRole) -> Binding<String> {
+    private var activePersonaNameBinding: Binding<String> {
         Binding(
-            get: { role == .me ? model.identity.me : model.identity.other },
-            set: { newValue in
-                var updated = model.identity
-                if role == .me {
-                    updated.me = newValue
-                } else {
-                    updated.other = newValue
-                }
-                model.identity = updated
-            }
+            get: { model.activePersonaName },
+            set: { model.updateActivePersonaName($0) }
         )
+    }
+
+    private var personaAppearanceEditor: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("界面外观")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Macaron.ink)
+            appearanceColorRow("整体背景", keyPath: \.appBackgroundHex)
+            appearanceColorRow("聊天背景", keyPath: \.chatBackgroundHex)
+            appearanceColorRow("我方聊天气泡", keyPath: \.outgoingBubbleHex)
+            appearanceColorRow("好友聊天气泡", keyPath: \.incomingBubbleHex)
+            appearanceColorRow("文字颜色", keyPath: \.textHex)
+            appearanceColorRow("主题强调色", keyPath: \.accentHex)
+            PhotosPicker(selection: $chatBackgroundImageSelection, matching: .images) {
+                Label(activeAppearance.chatBackgroundImageData == nil ? "选择聊天背景图片" : "更换聊天背景图片", systemImage: "photo")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x4F91D2))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(13)
+                    .background(Color(hex: 0xE8F3FF), in: RoundedRectangle(cornerRadius: 14))
+            }
+            if activeAppearance.chatBackgroundImageData != nil {
+                Button(role: .destructive) {
+                    var appearance = activeAppearance
+                    appearance.chatBackgroundImageData = nil
+                    model.updateActivePersonaAppearance(appearance)
+                } label: {
+                    Label("移除背景图片", systemImage: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            Text("每个账号独立保存颜色设置。背景图片只影响当前账号的聊天界面。")
+                .font(.system(size: 11))
+                .foregroundStyle(Macaron.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Macaron.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func appearanceColorRow(_ title: String, keyPath: WritableKeyPath<PersonaAppearance, UInt>) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Macaron.ink)
+            Spacer()
+            ColorPicker(title, selection: appearanceColorBinding(keyPath), supportsOpacity: false)
+                .labelsHidden()
+        }
     }
 
     private func identityEditor(
