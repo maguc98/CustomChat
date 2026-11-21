@@ -617,7 +617,10 @@ struct MomentPost: Identifiable, Codable {
     var date: Date
     var mediaData: Data?
     var mediaType: String?
+    // Likes belong to the viewing account, not to the post globally.
+    // Optional for decoding posts saved by older app versions.
     var isLiked: Bool?
+    var likedByAccountIDs: [String]?
     var comments: [MomentComment]?
     var shareCount: Int?
 
@@ -628,8 +631,14 @@ struct MomentPost: Identifiable, Codable {
         self.mediaData = mediaData
         self.mediaType = mediaType
         isLiked = false
+        likedByAccountIDs = []
         comments = []
         shareCount = 0
+    }
+
+    func isLiked(by accountID: UUID, legacyMainAccountID: UUID) -> Bool {
+        let likedIDs = likedByAccountIDs ?? (isLiked == true ? [legacyMainAccountID.uuidString] : [])
+        return likedIDs.contains(accountID.uuidString)
     }
 }
 
@@ -3549,6 +3558,26 @@ struct ContentView: View {
         }
     }
 
+    private func toggleMomentLike(_ id: UUID) {
+        let viewerID = model.activeAccountID
+        let mainID = model.mainAccountID
+        updateMoment(id) { post in
+            var likedIDs = post.likedByAccountIDs ?? (post.isLiked == true ? [mainID.uuidString] : [])
+            if likedIDs.contains(viewerID.uuidString) {
+                likedIDs.removeAll { $0 == viewerID.uuidString }
+            } else {
+                likedIDs.append(viewerID.uuidString)
+            }
+            post.likedByAccountIDs = likedIDs
+            // Keep the legacy flag synchronized only for the original account.
+            if viewerID == mainID { post.isLiked = likedIDs.contains(mainID.uuidString) }
+        }
+    }
+
+    private func isMomentLikedByActiveAccount(_ post: MomentPost) -> Bool {
+        post.isLiked(by: model.activeAccountID, legacyMainAccountID: model.mainAccountID)
+    }
+
     private var momentsFeedItems: [MomentFeedItem] {
         var items = model.activePersonaMoments.map {
             MomentFeedItem(author: model.activePersonaName, avatarData: model.activePersonaAvatar, post: $0)
@@ -3645,11 +3674,12 @@ struct ContentView: View {
     private func momentInteractionBar(_ item: MomentFeedItem) -> some View {
         HStack(spacing: 0) {
             Button {
-                updateMoment(item.id) { $0.isLiked = !($0.isLiked ?? false) }
+                toggleMomentLike(item.id)
             } label: {
-                Label(item.post.isLiked == true ? "已赞" : "赞", systemImage: item.post.isLiked == true ? "heart.fill" : "heart")
-                    .foregroundStyle(item.post.isLiked == true ? Color(hex: 0xE77D9B) : Macaron.secondary)
-                    .scaleEffect(item.post.isLiked == true ? 1.05 : 1)
+                let liked = isMomentLikedByActiveAccount(item.post)
+                Label(liked ? "已赞" : "赞", systemImage: liked ? "heart.fill" : "heart")
+                    .foregroundStyle(liked ? Color(hex: 0xE77D9B) : Macaron.secondary)
+                    .scaleEffect(liked ? 1.05 : 1)
             }
             Spacer()
             Button { activeMomentForComments = item.id } label: {
