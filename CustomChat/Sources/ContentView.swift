@@ -1952,6 +1952,7 @@ struct ContentView: View {
 
     private var activeAppearance: PersonaAppearance { model.activePersonaAppearance }
     private var appBackgroundColor: Color { Color(hex: activeAppearance.appBackgroundHex) }
+    private var chatFrameColor: Color { Color(hex: activeAppearance.chatPanelOuterHex) }
     private var accentColor: Color { Color(hex: activeAppearance.accentHex) }
     private var incomingBubbleColor: Color { Color(hex: activeAppearance.incomingBubbleHex) }
     private var messageTextColor: Color { Color(hex: activeAppearance.textHex) }
@@ -2054,7 +2055,7 @@ struct ContentView: View {
 
     private var pageContent: some View {
         ZStack {
-            appBackgroundColor.ignoresSafeArea()
+            (showConversation ? chatFrameColor : appBackgroundColor).ignoresSafeArea()
             if showConversation {
                 conversationView
                     .transition(.chatCinematic)
@@ -2917,7 +2918,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, minHeight: 54, maxHeight: 54)
             .padding(.horizontal, 8)
             .background {
-                Color.white.ignoresSafeArea(edges: .top)
+                chatFrameColor.ignoresSafeArea(edges: .top)
             }
             .confirmationDialog(
                 model.currentContact?.isGroup == true ? "群聊操作" : "联系人操作",
@@ -3098,7 +3099,7 @@ struct ContentView: View {
                 .transition(.chatCinematic)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(appBackgroundColor)
+        .background(chatFrameColor.ignoresSafeArea())
         .clipped()
         .padding(.bottom, messageFocused ? 8 : 0)
     }
@@ -4222,7 +4223,7 @@ struct ContentView: View {
                 .foregroundStyle(messageTextColor)
             appearanceColorRow("整体背景", keyPath: \.appBackgroundHex)
             appearanceColorRow("聊天内容背景", keyPath: \.chatBackgroundHex)
-            appearanceColorRow("聊天面板外层背景", keyPath: \.chatPanelOuterHex)
+            appearanceColorRow("聊天框外侧及上下背景（统一）", keyPath: \.chatPanelOuterHex)
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     Text("四角 R 角大小")
