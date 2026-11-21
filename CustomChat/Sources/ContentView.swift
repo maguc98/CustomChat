@@ -5945,27 +5945,88 @@ private struct MomentMediaPreviewSheet: View {
     let mediaType: String?
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var zoomScale: CGFloat = 1
+    @State private var zoomStartScale: CGFloat = 1
+    @State private var imageOffset: CGSize = .zero
+    @State private var dragStartOffset: CGSize = .zero
+
+    private let imageCornerRadius: CGFloat = 22
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Macaron.background.ignoresSafeArea()
-                Group {
+                GeometryReader { geometry in
                     if mediaType == "video" {
-                        if let player {
-                            VideoPlayer(player: player)
-                                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        } else {
-                            ProgressView().tint(Color(hex: 0x5799D9))
+                        Group {
+                            if let player {
+                                VideoPlayer(player: player)
+                                    .clipShape(RoundedRectangle(cornerRadius: imageCornerRadius, style: .continuous))
+                            } else {
+                                ProgressView().tint(Color(hex: 0x5799D9))
+                            }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(16)
                     } else if let image = UIImage(data: data) {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .frame(width: max(1, geometry.size.width - 32), height: max(1, geometry.size.height - 32))
+                            .scaleEffect(zoomScale)
+                            .offset(imageOffset)
+                            .contentShape(Rectangle())
+                            .simultaneousGesture(
+                                MagnificationGesture()
+                                    .onChanged { value in
+                                        zoomScale = min(max(zoomStartScale * value, 1), 5)
+                                        if zoomScale <= 1.02 {
+                                            imageOffset = .zero
+                                            dragStartOffset = .zero
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        zoomStartScale = zoomScale
+                                        if zoomScale <= 1.02 {
+                                            withAnimation(ChatMotion.layout) {
+                                                imageOffset = .zero
+                                                dragStartOffset = .zero
+                                            }
+                                        }
+                                    }
+                            )
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 8)
+                                    .onChanged { value in
+                                        guard zoomScale > 1.02 else { return }
+                                        imageOffset = CGSize(
+                                            width: dragStartOffset.width + value.translation.width,
+                                            height: dragStartOffset.height + value.translation.height
+                                        )
+                                    }
+                                    .onEnded { _ in
+                                        if zoomScale > 1.02 { dragStartOffset = imageOffset }
+                                    }
+                            )
+                            .onTapGesture(count: 2) {
+                                withAnimation(ChatMotion.layout) {
+                                    if zoomScale > 1.02 {
+                                        zoomScale = 1
+                                        zoomStartScale = 1
+                                        imageOffset = .zero
+                                        dragStartOffset = .zero
+                                    } else {
+                                        zoomScale = 2.4
+                                        zoomStartScale = 2.4
+                                    }
+                                }
+                            }
+                            // Clip after scaling and offset so the rounded frame remains fixed.
+                            .clipShape(RoundedRectangle(cornerRadius: imageCornerRadius, style: .continuous))
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .padding(16)
                     }
                 }
-                .padding(16)
             }
             .navigationTitle(mediaType == "video" ? "视频预览" : "图片预览")
             .navigationBarTitleDisplayMode(.inline)
