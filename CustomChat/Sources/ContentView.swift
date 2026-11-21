@@ -778,7 +778,11 @@ private final class ChatModel: ObservableObject {
 
     func switchPersona(_ id: UUID?) {
         guard id == nil || contacts.contains(where: { $0.id == id && $0.isGroup != true }) else { return }
-        withAnimation(ChatMotion.layout) { activePersonaID = id }
+        withAnimation(ChatMotion.layout) {
+            activePersonaID = id
+            activeRole = .me
+            activeGroupSenderID = nil
+        }
     }
 
     func updateActivePersonaAppearance(_ appearance: PersonaAppearance) {
@@ -799,7 +803,7 @@ private final class ChatModel: ObservableObject {
             contacts[index].name = cleaned
         } else {
             var updated = identity
-            updated.me = name
+            updated.me = cleaned
             identity = updated
         }
     }
