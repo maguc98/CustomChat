@@ -1886,6 +1886,7 @@ struct ContentView: View {
     @State private var selectedTab: AppTab = .chats
     @Namespace private var tabGlassNamespace
     @State private var isTabCapsulePressed = false
+    @State private var tabDragProgress: CGFloat?
     @State private var showConversation = false
     @State private var showMyProfileEditor = false
     @State private var showPersonaSwitcher = false
@@ -4033,23 +4034,6 @@ struct ContentView: View {
             .foregroundStyle(selectedTab == tab ? Color(hex: 0x398FE0) : Macaron.secondary)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
-            .background {
-                if selectedTab == tab {
-                    if #available(iOS 26.0, *) {
-                        Capsule()
-                            .fill(.clear)
-                            .glassEffect(.regular.tint(Color(hex: 0xD9ECFF)).interactive(), in: Capsule())
-                            .glassEffectID("active-tab-indicator", in: tabGlassNamespace)
-                            .glassEffectTransition(.matchedGeometry)
-                            .scaleEffect(isTabCapsulePressed ? 1.10 : 1)
-                            .shadow(color: Color(hex: 0x75AEE8).opacity(isTabCapsulePressed ? 0.22 : 0), radius: isTabCapsulePressed ? 12 : 0, y: 4)
-                    } else {
-                        Capsule()
-                            .fill(Color(hex: 0xD9ECFF).opacity(isTabCapsulePressed ? 0.95 : 0.72))
-                            .scaleEffect(isTabCapsulePressed ? 1.08 : 1)
-                    }
-                }
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -4062,29 +4046,75 @@ struct ContentView: View {
             GlassEffectContainer(spacing: 14) {
                 HStack(alignment: .center, spacing: 14) {
                     GeometryReader { proxy in
-                        HStack(spacing: 2) {
-                            ForEach([AppTab.chats, .contacts, .calls, .album], id: \.self) { tab in
-                                tabButton(tab)
+                        let tabs: [AppTab] = [.chats, .contacts, .calls, .album]
+                        let slotWidth = max(1, (proxy.size.width - 20) / 4)
+                        let step = slotWidth + 2
+                        let restingIndex = CGFloat(tabs.firstIndex(of: selectedTab) ?? 0)
+                        let indicatorProgress = min(3, max(0, tabDragProgress ?? restingIndex))
+
+                        ZStack(alignment: .leading) {
+                            HStack(spacing: 2) {
+                                ForEach(tabs, id: \.self) { tab in
+                                    tabButton(tab)
+                                }
                             }
+                            .padding(.horizontal, 7)
+
+                            Capsule()
+                                .fill(.clear)
+                                .frame(width: slotWidth, height: 48)
+                                .glassEffect(
+                                    .regular.tint(Color(hex: 0xD9ECFF)).interactive(),
+                                    in: Capsule()
+                                )
+                                .glassEffectID("active-tab-indicator", in: tabGlassNamespace)
+                                .glassEffectTransition(.matchedGeometry)
+                                .scaleEffect(x: isTabCapsulePressed ? 1.10 : 1,
+                                             y: isTabCapsulePressed ? 1.16 : 1,
+                                             anchor: .center)
+                                .shadow(
+                                    color: Color(hex: 0x75AEE8).opacity(isTabCapsulePressed ? 0.20 : 0.08),
+                                    radius: isTabCapsulePressed ? 13 : 5,
+                                    x: 0,
+                                    y: isTabCapsulePressed ? 5 : 2
+                                )
+                                .offset(x: 7 + indicatorProgress * step)
+                                .allowsHitTesting(false)
+                                .animation(
+                                    tabDragProgress == nil ? ChatMotion.layout : nil,
+                                    value: indicatorProgress
+                                )
                         }
-                        .padding(.horizontal, 7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Capsule())
                         .simultaneousGesture(
                             DragGesture(minimumDistance: 0, coordinateSpace: .local)
                                 .onChanged { value in
                                     isTabCapsulePressed = true
-                                    let tabs: [AppTab] = [.chats, .contacts, .calls, .album]
-                                    let slotWidth = proxy.size.width / CGFloat(tabs.count)
-                                    let index = min(tabs.count - 1, max(0, Int(value.location.x / max(1, slotWidth))))
-                                    withAnimation(ChatMotion.press) { selectedTab = tabs[index] }
+                                    let rawProgress = (value.location.x - 7 - slotWidth / 2) / step
+                                    let progress = min(3, max(0, rawProgress))
+                                    tabDragProgress = progress
+
+                                    let nearestIndex = min(3, max(0, Int(progress.rounded())))
+                                    let nextTab = tabs[nearestIndex]
+                                    if selectedTab != nextTab {
+                                        var transaction = Transaction(animation: .spring(response: 0.20, dampingFraction: 0.78))
+                                        transaction.disablesAnimations = false
+                                        withTransaction(transaction) {
+                                            selectedTab = nextTab
+                                        }
+                                    }
                                 }
                                 .onEnded { _ in
-                                    withAnimation(ChatMotion.press) { isTabCapsulePressed = false }
+                                    withAnimation(ChatMotion.press) {
+                                        isTabCapsulePressed = false
+                                        tabDragProgress = nil
+                                    }
                                 }
                         )
                     }
                     .frame(height: 56)
-                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .glassEffect(.regular, in: Capsule())
 
                     tabButton(.profile)
                         .frame(width: 66)
