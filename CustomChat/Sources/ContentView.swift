@@ -2293,6 +2293,14 @@ struct ContentView: View {
                             paymentAmountDraft = ""
                             paymentNoteDraft = "转账"
                             showTransferInput = true
+                        },
+                        onVoiceCall: {
+                            showAddMenu = false
+                            beginCall(video: false)
+                        },
+                        onVideoCall: {
+                            showAddMenu = false
+                            beginCall(video: true)
                         }
                     )
                     .transition(.chatCinematic)
@@ -2880,43 +2888,21 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
 
-                HStack(spacing: 3) {
-                    Button { beginCall(video: false) } label: {
-                        Image(systemName: "phone")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(messageTextColor)
-                            .frame(width: 36, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("语音通话")
-
-                    Button { beginCall(video: true) } label: {
-                        Image(systemName: "video")
-                            .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(messageTextColor)
-                            .frame(width: 36, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("视频通话")
-
-                    Button {
-                        showContactActions = true
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(messageTextColor)
-                            .frame(width: 36, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("联系人操作")
+                Button {
+                    showContactActions = true
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(messageTextColor)
+                        .frame(width: 36, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .fixedSize(horizontal: true, vertical: false)
+                .buttonStyle(.plain)
+                .accessibilityLabel("联系人操作")
             }
             .frame(maxWidth: .infinity, minHeight: 54, maxHeight: 54)
-            .padding(.horizontal, 8)
+            // Keep both edge controls comfortably inset from the device corners.
+            .padding(.horizontal, 16)
             .background {
                 chatFrameColor.ignoresSafeArea(edges: .top)
             }
@@ -4881,6 +4867,8 @@ private struct AddContentMenu: View {
     let onPhoto: () -> Void
     let onRedPacket: () -> Void
     let onTransfer: () -> Void
+    let onVoiceCall: () -> Void
+    let onVideoCall: () -> Void
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -4908,6 +4896,11 @@ private struct AddContentMenu: View {
                     AddContentMenuItem(symbol: "photo", title: "照片", tint: Color(hex: 0xDCEBFA), action: onPhoto)
                     AddContentMenuItem(symbol: "gift", title: "红包", tint: Color(hex: 0xF9E2DF), action: onRedPacket)
                     AddContentMenuItem(symbol: "yensign.circle", title: "转账", tint: Color(hex: 0xFBEBD2), action: onTransfer)
+                }
+
+                HStack(spacing: 12) {
+                    AddContentMenuItem(symbol: "phone", title: "语音通话", tint: Color(hex: 0xE5F2E9), action: onVoiceCall)
+                    AddContentMenuItem(symbol: "video", title: "视频通话", tint: Color(hex: 0xE4ECFA), action: onVideoCall)
                 }
                 .padding(.bottom, 8)
             }
