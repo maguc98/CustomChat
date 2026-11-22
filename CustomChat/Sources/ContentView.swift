@@ -2068,29 +2068,19 @@ struct ContentView: View {
             }
         }
         .overlay { minimizedCallOverlay }
-        .overlay {
-            if showConversation {
-                GeometryReader { geometry in
-                    Color.clear
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 16, coordinateSpace: .local)
-                                .onEnded { value in
-                                    // 从屏幕左半边任意位置开始向右滑动，都可以返回。
-                                    guard value.startLocation.x <= geometry.size.width / 2 else { return }
-                                    let horizontal = value.translation.width
-                                    let vertical = abs(value.translation.height)
-                                    guard horizontal > 64, horizontal > vertical * 1.25 else { return }
-                                    messageFocused = false
-                                    withAnimation(ChatMotion.layout) { showConversation = false }
-                                }
-                        )
-                        .accessibilityLabel("从屏幕左半边向右滑动返回")
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .local)
+                .onEnded { value in
+                    // 手势附着在页面容器上，与内部 ScrollView 同时识别，不覆盖滚动区域。
+                    guard showConversation,
+                          value.startLocation.x <= UIScreen.main.bounds.width / 2 else { return }
+                    let horizontal = value.translation.width
+                    let vertical = abs(value.translation.height)
+                    guard horizontal > 64, horizontal > vertical * 1.25 else { return }
+                    messageFocused = false
+                    withAnimation(ChatMotion.layout) { showConversation = false }
                 }
-                .zIndex(100)
-            }
-        }
+        )
         .sheet(item: Binding(
             get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
             set: { activeMomentForComments = $0?.id }
