@@ -3316,27 +3316,23 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Rebuilt Profile
+
     private var profileView: some View {
         ZStack {
-            appBackgroundColor.ignoresSafeArea()
+            Color(hex: 0xF4F6FB).ignoresSafeArea()
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 17) {
+                VStack(alignment: .leading, spacing: 24) {
                     profileHeader
-                    profileIdentityCard
-                    accountQRCodeCard
-                    profileWalletCard
-                    profileSettingsCard
+                    profileHero
+                    profileQuickActions
+                    profileWalletPanel
+                    profileSettingsSection
                     myMomentsProfileSection
-                    Text("CUSTOMCHAT · 个人空间")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .tracking(1.2)
-                        .foregroundStyle(Macaron.secondary.opacity(0.8))
-                        .padding(.top, 2)
+                    profileFooter
                 }
-                .padding(.top, 18)
-                // Extra scroll range lets the final cards move naturally behind
-                // the existing floating dock instead of being trapped beneath it.
-                .padding(.bottom, 118)
+                .padding(.top, 14)
+                .padding(.bottom, 142)
             }
             .scrollIndicators(.hidden)
         }
@@ -3346,145 +3342,224 @@ struct ContentView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("我的")
-                    .font(.system(size: 29, weight: .bold, design: .rounded))
-                    .tracking(-0.7)
-                    .foregroundStyle(messageTextColor)
-                Text("个人空间")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Macaron.secondary)
+                    .font(.system(size: 31, weight: .heavy, design: .rounded))
+                    .tracking(-0.9)
+                    .foregroundStyle(Color(hex: 0x202A41))
+                Text("把日常，整理成喜欢的样子")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x8490A6))
             }
             Spacer()
             Button { showMyProfileEditor = true } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x347FCB))
-                    .frame(width: 44, height: 44)
-                    .background(Color(hex: 0xDCEEFF), in: Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.95), lineWidth: 1))
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x27334A))
+                    .frame(width: 46, height: 46)
+                    .background(Color(hex: 0xFFE1A8), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                    .rotationEffect(.degrees(-7))
             }
             .buttonStyle(FluidPressButtonStyle())
             .accessibilityLabel("编辑我的资料")
         }
-        .padding(.horizontal, 21)
-        .padding(.top, 12)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 22)
     }
 
-        private var profileIdentityCard: some View {
+    private var profileHero: some View {
         Button { showPersonaSwitcher = true } label: {
-            HStack(spacing: 15) {
-                IdentityAvatar(data: model.activePersonaAvatar, name: model.activePersonaName, size: 72, tint: Color(hex: 0x78B7F2))
-                    .overlay(Circle().stroke(Color.white, lineWidth: 3))
-                    .shadow(color: Color(hex: 0x6CA9E8).opacity(0.18), radius: 9, y: 4)
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(model.activePersonaName)
-                        .contentTransition(.interpolate)
-                        .animation(ChatMotion.text, value: model.activePersonaName)
-                        .font(.system(size: 21, weight: .bold, design: .rounded))
-                        .foregroundStyle(messageTextColor)
-                    HStack(spacing: 5) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    HStack(spacing: 7) {
                         Circle()
-                            .fill(Color(hex: 0x62B99B))
-                            .frame(width: 6, height: 6)
-                        Text(model.activePersonaID == nil ? "主账号 · 点击切换身份" : "独立账号 · 点击切换身份")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Macaron.secondary)
+                            .fill(Color(hex: 0x4CBF9B))
+                            .frame(width: 7, height: 7)
+                        Text("CURRENT IDENTITY")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                            .tracking(1.15)
+                            .foregroundStyle(Color(hex: 0x536887))
                     }
+                    Spacer()
+                    Text("切换身份")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x376FB5))
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x376FB5))
                 }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x7B91AC))
-                    .frame(width: 30, height: 30)
-                    .background(Color.white.opacity(0.72), in: Circle())
+
+                HStack(spacing: 15) {
+                    IdentityAvatar(
+                        data: model.activePersonaAvatar,
+                        name: model.activePersonaName,
+                        size: 76,
+                        tint: Color(hex: 0x78B7F2)
+                    )
+                    .overlay(Circle().stroke(Color.white, lineWidth: 4))
+                    .shadow(color: Color(hex: 0x607EAD).opacity(0.18), radius: 12, y: 5)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(model.activePersonaName)
+                            .font(.system(size: 24, weight: .heavy, design: .rounded))
+                            .tracking(-0.4)
+                            .foregroundStyle(Color(hex: 0x202A41))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .contentTransition(.interpolate)
+                            .animation(ChatMotion.text, value: model.activePersonaName)
+
+                        Text(model.activePersonaID == nil ? "主账号 · 当前使用中" : "独立账号 · 当前使用中")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x63758F))
+
+                        Text("账号编号  \(model.activeAccountNumber)")
+                            .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
+                            .foregroundStyle(Color(hex: 0x6E7F98))
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(Color(hex: 0x526987))
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("点击这里切换聊天身份与个人资料")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(Color(hex: 0x536987))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Color.white.opacity(0.48), in: Capsule())
             }
-            .padding(.horizontal, 17)
-            .padding(.vertical, 17)
-            .background(
-                LinearGradient(
-                    colors: [Color(hex: 0xE2F1FF), Color(hex: 0xF0EAFE)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 25, style: .continuous)
+            .padding(19)
+            .background {
+                ZStack(alignment: .topTrailing) {
+                    LinearGradient(
+                        colors: [
+                            Color(hex: 0xD5E9FF),
+                            Color(hex: 0xE4DFFF),
+                            Color(hex: 0xF9DDEB)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    Circle()
+                        .fill(Color.white.opacity(0.24))
+                        .frame(width: 130, height: 130)
+                        .offset(x: 38, y: -52)
+                    Circle()
+                        .fill(Color(hex: 0xB5EAD9).opacity(0.55))
+                        .frame(width: 52, height: 52)
+                        .offset(x: -17, y: 25)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(Color.white.opacity(0.88), lineWidth: 1.2)
             )
-            .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color.white.opacity(0.95), lineWidth: 1))
         }
         .buttonStyle(FluidPressButtonStyle())
         .padding(.horizontal, 18)
     }
 
-        private var accountQRCodeCard: some View {
-        Button { showMyQRCode = true } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "qrcode")
-                    .font(.system(size: 25, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x3F8DD7))
-                    .frame(width: 54, height: 54)
-                    .background(Color(hex: 0xDDEEFF), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("我的专属二维码")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(messageTextColor)
-                    Text("账号编号  \(model.activeAccountNumber)")
-                        .font(.system(size: 13, weight: .medium, design: .rounded).monospacedDigit())
-                        .foregroundStyle(Macaron.secondary)
+    private var profileQuickActions: some View {
+        HStack(spacing: 11) {
+            Button { showMyQRCode = true } label: {
+                HStack(spacing: 11) {
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x3D83CF))
+                        .frame(width: 48, height: 48)
+                        .background(Color(hex: 0xDCEEFF), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("我的二维码")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x253149))
+                        Text("扫码添加好友")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x8793A8))
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x6A91C1))
                 }
-                Spacer(minLength: 4)
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x4D92D5))
-                    .frame(width: 30, height: 30)
-                    .background(Color(hex: 0xEDF6FF), in: Circle())
+                .padding(13)
+                .frame(maxWidth: .infinity, minHeight: 76)
+                .background(.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
-            .padding(16)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous).stroke(Color(hex: 0xE9EFF7), lineWidth: 1))
+            .buttonStyle(FluidPressButtonStyle())
+
+            Button { showAccountManagement = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "person.2.crop.square.stack.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x8A66C8))
+                        .frame(width: 46, height: 46)
+                        .background(Color(hex: 0xEEE4FF), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("账号管理")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x253149))
+                        Text("\(model.accountDirectory.count) 个身份")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x8793A8))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(13)
+                .frame(maxWidth: .infinity, minHeight: 76)
+                .background(.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            .buttonStyle(FluidPressButtonStyle())
         }
-        .buttonStyle(FluidPressButtonStyle())
         .padding(.horizontal, 18)
     }
 
-        private var profileWalletCard: some View {
+    private var profileWalletPanel: some View {
         VStack(alignment: .leading, spacing: 15) {
-            HStack(spacing: 10) {
-                Image(systemName: "wallet.pass.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x426CB7))
-                    .frame(width: 36, height: 36)
-                    .background(Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                Text("我的钱包")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(messageTextColor)
+            HStack(alignment: .center) {
+                HStack(spacing: 8) {
+                    Image(systemName: "wallet.pass.fill")
+                        .font(.system(size: 15, weight: .bold))
+                    Text("我的钱包")
+                        .font(.system(size: 15, weight: .bold))
+                }
+                .foregroundStyle(Color.white.opacity(0.92))
                 Spacer()
-                Button("修改余额") {
+                Button {
                     editingWalletRole = .me
                     walletBalanceDraft = String(format: "%.2f", model.activePersonaWalletBalance())
                     showBalanceEditor = true
+                } label: {
+                    Label("调整余额", systemImage: "pencil")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x293650))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color(hex: 0xCFF59A), in: Capsule())
                 }
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(hex: 0x397FC8))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.78), in: Capsule())
+                .buttonStyle(FluidPressButtonStyle())
             }
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text("当前账号余额")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x687994))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("当前身份可用余额")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.72))
                 Text("¥\(model.activePersonaWalletBalance(), specifier: "%.2f")")
+                    .font(.system(size: 37, weight: .heavy, design: .rounded))
+                    .tracking(-0.8)
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
                     .contentTransition(.numericText())
                     .animation(ChatMotion.text, value: model.activePersonaWalletBalance())
-                    .font(.system(size: 35, weight: .bold, design: .rounded))
-                    .tracking(-0.8)
-                    .foregroundStyle(Color(hex: 0x202C40))
-                    .minimumScaleFactor(0.78)
+                    .minimumScaleFactor(0.75)
                     .lineLimit(1)
             }
 
             Rectangle()
-                .fill(Color.white.opacity(0.82))
+                .fill(Color.white.opacity(0.18))
                 .frame(height: 1)
 
             HStack(spacing: 8) {
@@ -3502,51 +3577,59 @@ struct ContentView: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Text("\(walletTargetContact?.name ?? "选择好友")的账户余额")
-                            .font(.system(size: 12, weight: .semibold))
+                        Text("\(walletTargetContact?.name ?? "选择好友")的余额")
+                            .font(.system(size: 11, weight: .semibold))
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 9, weight: .bold))
                     }
-                    .foregroundStyle(Color(hex: 0x397FC8))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 9)
-                    .background(Color.white.opacity(0.72), in: Capsule())
+                    .foregroundStyle(.white)
                 }
-                Spacer(minLength: 3)
+                Spacer(minLength: 2)
                 Text("¥\(model.walletBalance(for: walletTargetContact), specifier: "%.2f")")
-                    .contentTransition(.numericText())
-                    .animation(ChatMotion.text, value: model.walletBalance(for: walletTargetContact))
                     .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: 0x253249))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.75)
                 Button("修改") {
                     editingWalletRole = .other
                     editingWalletContactID = walletTargetContact?.id
                     walletBalanceDraft = String(format: "%.2f", model.walletBalance(for: walletTargetContact))
                     showBalanceEditor = true
                 }
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color(hex: 0x397FC8))
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Color(hex: 0xCFF59A))
                 .disabled(walletTargetContact == nil)
             }
+            .padding(.top, 1)
 
-            Text("红包和转账会从发送身份的余额扣除，领取后计入接收身份余额。仅保存在本机，不涉及真实资金。")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(hex: 0x687994))
-                .fixedSize(horizontal: false, vertical: true)
+            Text("红包与转账仅在本机模拟，不涉及真实资金。")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.62))
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [Color(hex: 0xDFF1FF), Color(hex: 0xEAE5FF), Color(hex: 0xFBEAF3)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 25, style: .continuous)
+        .padding(19)
+        .background {
+            ZStack(alignment: .topTrailing) {
+                LinearGradient(
+                    colors: [Color(hex: 0x283D69), Color(hex: 0x5263A6), Color(hex: 0x765CBB)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Circle()
+                    .fill(Color(hex: 0xD2F58E).opacity(0.20))
+                    .frame(width: 150, height: 150)
+                    .offset(x: 44, y: -70)
+                Circle()
+                    .stroke(Color.white.opacity(0.11), lineWidth: 1)
+                    .frame(width: 205, height: 205)
+                    .offset(x: 58, y: -90)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 27, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
         )
-        .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color.white.opacity(0.92), lineWidth: 1))
         .padding(.horizontal, 18)
         .alert("修改钱包余额", isPresented: $showBalanceEditor) {
             TextField("输入余额", text: $walletBalanceDraft)
@@ -3566,114 +3649,132 @@ struct ContentView: View {
         }
     }
 
-        private var profileSettingsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            profileSettingsHeader
-            if isProfileSettingsExpanded {
-                profileSettingsRows
+    private var profileSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .lastTextBaseline) {
+                Text("设置与偏好")
+                    .font(.system(size: 19, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x202A41))
+                Spacer()
+                Text("MAKE IT YOURS")
+                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .tracking(1.1)
+                    .foregroundStyle(Color(hex: 0x9AA4B6))
             }
+            .padding(.horizontal, 21)
+
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                profileSettingTile(
+                    symbol: "paintpalette.fill",
+                    title: "聊天外观",
+                    subtitle: "背景与主题",
+                    foreground: Color(hex: 0x9A62C7),
+                    background: Color(hex: 0xF0E4FF)
+                ) {
+                    showChatSettings = true
+                }
+                profileSettingTile(
+                    symbol: "waveform",
+                    title: "语音识别",
+                    subtitle: voiceCapture.isModelInstalled ? "离线模型已就绪" : "模型尚未下载",
+                    foreground: Color(hex: 0x328EAE),
+                    background: Color(hex: 0xDDF5FA)
+                ) {
+                    voiceCapture.refreshModelStatus()
+                    showChatSettings = true
+                }
+                profileSettingTile(
+                    symbol: "bell.badge.fill",
+                    title: "消息提醒",
+                    subtitle: soundOption,
+                    foreground: Color(hex: 0xC17D32),
+                    background: Color(hex: 0xFFF0D9)
+                ) {
+                    showSoundPicker = true
+                }
+                profileSettingTile(
+                    symbol: "trash.fill",
+                    title: "清理聊天记录",
+                    subtitle: "删除当前聊天内容",
+                    foreground: Color(hex: 0xD35F80),
+                    background: Color(hex: 0xFFE4EC)
+                ) {
+                    showClearConfirmation = true
+                }
+            }
+            .padding(.horizontal, 18)
         }
-        .padding(.vertical, 5)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous).stroke(Color(hex: 0xE9EFF7), lineWidth: 1))
-        .padding(.horizontal, 18)
     }
 
-    private var profileSettingsHeader: some View {
-        Button {
-            withAnimation(ChatMotion.layout) { isProfileSettingsExpanded.toggle() }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x8A62C5))
-                    .frame(width: 38, height: 38)
-                    .background(Color(hex: 0xF0E7FF), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("设置")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(messageTextColor)
-                    Text("账号、语音与聊天偏好")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Macaron.secondary)
+    private func profileSettingTile(
+        symbol: String,
+        title: String,
+        subtitle: String,
+        foreground: Color,
+        background: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(foreground)
+                    .frame(width: 39, height: 39)
+                    .background(background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x26324A))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Text(subtitle)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x8B96A9))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Macaron.secondary)
-                    .rotationEffect(.degrees(isProfileSettingsExpanded ? 180 : 0))
-                    .frame(width: 30, height: 30)
-                    .background(Color(hex: 0xF5F2FA), in: Circle())
+                Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
-            .padding(.horizontal, 15)
-            .padding(.vertical, 11)
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+            .background(.white, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
         }
         .buttonStyle(FluidPressButtonStyle())
     }
 
-        private var profileSettingsRows: some View {
-        VStack(spacing: 0) {
-            SettingsRow(symbol: "person.2.crop.square.stack", title: "账号管理", value: "\(model.accountDirectory.count) 个账号", tint: Color(hex: 0x83B9EF)) {
-                showAccountManagement = true
-            }
-            settingsDivider
-            voiceModelSettingRow
-            settingsDivider
-            clearChatSettingRow
-        }
-        .padding(.horizontal, 15)
-        .padding(.bottom, 8)
-        .transition(.chatCinematic)
-    }
-
-    private var settingsDivider: some View {
-        Divider().overlay(Macaron.line).padding(.leading, 54)
-    }
-
-    private var chatBackgroundSettingRow: some View {
-        SettingsRow(symbol: "photo", title: "聊天背景", value: backgroundOption, tint: Color(hex: 0x83B9EF)) {
-            showBackgroundPicker = true
-        }
-    }
-
-    private var themeSettingRow: some View {
-        SettingsRow(symbol: "paintpalette", title: "主题色", value: themeOption, tint: Color(hex: 0xC18AD8)) {
-            showThemePicker = true
-        }
-    }
-
-    private var fontSettingRow: some View {
-        SettingsRow(symbol: "textformat.size", title: "字体大小", value: fontOption, tint: Color(hex: 0x83B9EF)) {
-            showFontPicker = true
-        }
-    }
-
-    private var soundSettingRow: some View {
-        SettingsRow(symbol: "bell", title: "消息提示音", value: soundOption, tint: Color(hex: 0xE6A5C7)) {
-            showSoundPicker = true
-        }
-    }
-
-    private var voiceModelSettingRow: some View {
-        SettingsRow(symbol: "waveform.badge.mic", title: "语音模型下载", value: voiceCapture.isModelInstalled ? "已就绪" : "未下载", tint: Color(hex: 0x83B9EF)) {
-            voiceCapture.refreshModelStatus()
-            showChatSettings = true
-        }
-    }
-
-    private var clearChatSettingRow: some View {
-        Button { showClearConfirmation = true } label: {
-            SettingsLine(symbol: "trash", title: "清空当前好友聊天记录", tint: Color(hex: 0xD9829F))
-        }
-    }
-
     private var myMomentsProfileSection: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 13) {
             myMomentsHeader
             if model.activePersonaMoments.isEmpty {
-                EmptyHint(symbol: "text.bubble", title: "还没有朋友圈", subtitle: "记录生活，发布第一条动态吧。")
-                    .padding(.vertical, 20)
+                Button {
+                    editingMyMomentID = nil
+                    myMomentDraft = ""
+                    showMyMomentEditor = true
+                } label: {
+                    HStack(spacing: 13) {
+                        Image(systemName: "sparkles.rectangle.stack")
+                            .font(.system(size: 25, weight: .medium))
+                            .foregroundStyle(Color(hex: 0xD66D91))
+                            .frame(width: 54, height: 54)
+                            .background(Color(hex: 0xFFE4ED), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("发布第一条动态")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Color(hex: 0x26324A))
+                            Text("记录一点今天值得记住的事")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x8B96A9))
+                        }
+                        Spacer()
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(Color(hex: 0xE887A6))
+                    }
+                    .padding(15)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+                .buttonStyle(FluidPressButtonStyle())
+                .padding(.horizontal, 18)
             } else {
                 myMomentsPreviewRows
             }
@@ -3683,60 +3784,73 @@ struct ContentView: View {
     }
 
     private var myMomentsHeader: some View {
-        HStack(spacing: 9) {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("我的朋友圈")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(messageTextColor)
-                Text("分享最近的生活")
+                Text("朋友圈")
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x202A41))
+                Text("最近的生活片段")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Macaron.secondary)
+                    .foregroundStyle(Color(hex: 0x8B96A9))
             }
-            Spacer(minLength: 4)
+            Spacer()
             if !model.activePersonaMoments.isEmpty {
-                Button("查看全部") { showAllMyMoments = true }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x4089D2))
+                Button("全部 \(model.activePersonaMoments.count)") {
+                    showAllMyMoments = true
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Color(hex: 0x4C80BF))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+                .background(Color(hex: 0xE1EEFF), in: Capsule())
             }
             Button {
                 editingMyMomentID = nil
                 myMomentDraft = ""
                 showMyMomentEditor = true
             } label: {
-                Label("发布", systemImage: "plus")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x347FCB))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(Color(hex: 0xDCEEFF), in: Capsule())
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .heavy))
+                    .foregroundStyle(Color(hex: 0x29344A))
+                    .frame(width: 38, height: 38)
+                    .background(Color(hex: 0xCFF59A), in: Circle())
             }
             .buttonStyle(FluidPressButtonStyle())
+            .accessibilityLabel("发布朋友圈")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 3)
+        .padding(.horizontal, 21)
     }
 
-        private var myMomentsPreviewRows: some View {
-        ForEach(Array(model.activePersonaMoments.prefix(3))) { post in
-            profileMomentCard(post: post, inAllList: false)
-                .padding(.horizontal, 18)
-                .transition(.chatCinematic)
+    private var myMomentsPreviewRows: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(model.activePersonaMoments.prefix(3))) { post in
+                profileMomentCard(post: post, inAllList: false)
+                if post.id != model.activePersonaMoments.prefix(3).last?.id {
+                    Rectangle()
+                        .fill(Color(hex: 0xE5EAF2))
+                        .frame(height: 1)
+                        .padding(.leading, 58)
+                }
+            }
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 3)
+        .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .animation(ChatMotion.layout, value: model.activePersonaMoments.map { $0.id })
     }
 
     private var myMomentsAllSheet: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: 10) {
                     ForEach(model.activePersonaMoments) { post in
                         profileMomentCard(post: post, inAllList: true)
                     }
                 }
-                .padding(18)
+                .padding(16)
                 .animation(ChatMotion.layout, value: model.activePersonaMoments.map { $0.id })
             }
-            .background(appBackgroundColor)
+            .background(Color(hex: 0xF4F6FB))
             .navigationTitle("我的朋友圈")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -3756,31 +3870,47 @@ struct ContentView: View {
     }
 
     private func profileMomentCard(post: MomentPost, inAllList: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !post.text.isEmpty {
-                Text(post.text)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(messageTextColor)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let mediaData = post.mediaData {
-                MomentMediaView(data: mediaData, mediaType: post.mediaType)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            HStack {
-                Text(post.date, format: .dateTime.year().month().day().hour().minute())
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Macaron.secondary)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center, spacing: 10) {
+                IdentityAvatar(
+                    data: model.activePersonaAvatar,
+                    name: model.activePersonaName,
+                    size: 36,
+                    tint: Color(hex: 0xE99CB9)
+                )
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.activePersonaName)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x26324A))
+                    Text(post.date, format: .dateTime.year().month().day().hour().minute())
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                }
                 Spacer()
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Macaron.secondary)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x9AA5B7))
+            }
+
+            if !post.text.isEmpty {
+                Text(post.text)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x37435A))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 46)
+            }
+
+            if let mediaData = post.mediaData {
+                MomentMediaView(data: mediaData, mediaType: post.mediaType)
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .padding(.leading, 46)
             }
         }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 21, style: .continuous).stroke(Color(hex: 0xE9EFF7), lineWidth: 1))
+        .padding(.horizontal, inAllList ? 13 : 14)
+        .padding(.vertical, 14)
+        .background(inAllList ? Color.white : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .transition(.chatCinematic)
         .contextMenu {
             Button("编辑动态", systemImage: "pencil") {
@@ -3797,7 +3927,7 @@ struct ContentView: View {
         }
     }
 
-        private var myMomentEditorSheet: some View {
+    private var myMomentEditorSheet: some View {
         MomentEditorSheet(
             title: editingMyMomentID == nil ? "发布朋友圈" : "编辑朋友圈",
             initialText: myMomentDraft,
@@ -3814,6 +3944,19 @@ struct ContentView: View {
             }
             model.updateActivePersonaMoments(posts)
         }
+    }
+
+    private var profileFooter: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "heart.fill")
+                .foregroundStyle(Color(hex: 0xE98EAA))
+            Text("CUSTOMCHAT · YOUR SPACE")
+                .foregroundStyle(Color(hex: 0xA2AABC))
+                .tracking(1)
+        }
+        .font(.system(size: 9, weight: .bold, design: .rounded))
+        .frame(maxWidth: .infinity)
+        .padding(.top, 2)
     }
 
     private var callsView: some View {
