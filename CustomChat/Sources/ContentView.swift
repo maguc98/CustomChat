@@ -3096,34 +3096,9 @@ struct ContentView: View {
 
     private var composer: some View {
         VStack(spacing: 9) {
-            HStack(spacing: 7) {
-                Text("发送身份")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Macaron.secondary)
-                Spacer(minLength: 8)
-                Button { messageFocused = false } label: {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                        .font(.system(size: isCompactConversation ? 14 : 16, weight: .medium))
-                        .foregroundStyle(Macaron.secondary)
-                         .frame(width: isCompactConversation ? 26 : 30, height: isCompactConversation ? 26 : 30)
-                        .background(Color(hex: 0xF0F1F5), in: Circle())
-                }
-                .accessibilityLabel("收起键盘")
-                Button {
-                    NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
-                } label: {
-                    Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: isCompactConversation ? 13 : 15, weight: .medium))
-                        .foregroundStyle(Macaron.secondary)
-                        .frame(width: isCompactConversation ? 26 : 30, height: isCompactConversation ? 26 : 30)
-                        .background(Color(hex: 0xF0F1F5), in: Circle())
-                }
-                .accessibilityLabel("滚动到聊天底部")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
                     if model.currentContact?.isGroup == true {
                         Button {
                             withAnimation(ChatMotion.layout) { model.selectGroupSender(nil) }
@@ -3165,12 +3140,34 @@ struct ContentView: View {
                             .buttonStyle(FluidPressButtonStyle())
                         }
                     }
+                    }
+                    .padding(.horizontal, 1)
+                    .padding(.vertical, 2)
                 }
-                .padding(.horizontal, 1)
-                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: isCompactConversation ? 33 : 35)
+
+                Button { messageFocused = false } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: isCompactConversation ? 14 : 16, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                        .frame(width: isCompactConversation ? 26 : 30, height: isCompactConversation ? 26 : 30)
+                        .background(Color(hex: 0xF0F1F5), in: Circle())
+                }
+                .accessibilityLabel("收起键盘")
+
+                Button {
+                    NotificationCenter.default.post(name: .customChatScrollToBottom, object: nil)
+                } label: {
+                    Image(systemName: "arrow.down.to.line")
+                        .font(.system(size: isCompactConversation ? 13 : 15, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                        .frame(width: isCompactConversation ? 26 : 30, height: isCompactConversation ? 26 : 30)
+                        .background(Color(hex: 0xF0F1F5), in: Circle())
+                }
+                .accessibilityLabel("滚动到聊天底部")
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: isCompactConversation ? 33 : 35)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: isCompactConversation ? 6 : 11) {
                 if !isVoiceComposer {
