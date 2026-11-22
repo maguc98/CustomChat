@@ -1626,7 +1626,7 @@ private final class ChatModel: ObservableObject {
 
 private enum AppTab: String, CaseIterable {
     case chats = "聊天"
-    case contacts = "通讯录"
+    case contacts = "好友"
     case calls = "通话"
     case album = "朋友圈"
     case profile = "我的"
@@ -2255,7 +2255,7 @@ struct ContentView: View {
                 }
                 Button("取消", role: .cancel) { groupPendingDeletion = nil }
             } message: {
-                Text("将群聊从当前账号的通讯录中移除，并删除当前聊天身份下保存的该群聊记录。此操作无法撤销。")
+                Text("将群聊从当前账号的好友列表中移除，并删除当前聊天身份下保存的该群聊记录。此操作无法撤销。")
             }
             .confirmationDialog(
                 "删除与“\(chatHistoryPendingDeletion?.name ?? "好友")”的所有聊天记录？",
@@ -2688,7 +2688,7 @@ struct ContentView: View {
         return VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("通讯录")
+                    Text("好友")
                         .font(.system(size: 26, weight: .bold, design: .rounded))
                         .foregroundStyle(messageTextColor)
                     Text("当前账号 · \(friends.count) 位好友 · \(groups.count) 个群聊")
@@ -2714,7 +2714,7 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Macaron.secondary)
-                TextField("搜索通讯录", text: $searchText)
+                TextField("搜索好友或群聊", text: $searchText)
                     .font(.system(size: 15))
                     .foregroundStyle(messageTextColor)
                     .autocorrectionDisabled()
@@ -2728,7 +2728,7 @@ struct ContentView: View {
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if groups.isEmpty && friends.isEmpty {
-                        EmptyHint(symbol: "person.2", title: "通讯录还是空的", subtitle: "添加好友或创建群聊后，他们会显示在这里。")
+                        EmptyHint(symbol: "person.2", title: "还没有好友", subtitle: "添加好友或创建群聊后，就会显示在这里。")
                             .frame(maxWidth: .infinity)
                             .padding(.top, 48)
                     }
@@ -6595,7 +6595,7 @@ private struct VirtualScannerSheet: View {
                                 }
                             } label: {
                                 Label(
-                                    didAdd ? "已添加好友" : (isAlreadyFriend(account.id) ? "已添加" : "添加到通讯录"),
+                                    didAdd ? "已添加好友" : (isAlreadyFriend(account.id) ? "已添加" : "添加为好友"),
                                     systemImage: didAdd || isAlreadyFriend(account.id) ? "checkmark" : "person.badge.plus"
                                 )
                                 .font(.system(size: 15, weight: .semibold))
