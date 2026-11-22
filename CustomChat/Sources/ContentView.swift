@@ -4053,13 +4053,6 @@ struct ContentView: View {
                         let indicatorProgress = min(3, max(0, tabDragProgress ?? restingIndex))
 
                         ZStack(alignment: .leading) {
-                            HStack(spacing: 2) {
-                                ForEach(tabs, id: \.self) { tab in
-                                    tabButton(tab)
-                                }
-                            }
-                            .padding(.horizontal, 7)
-
                             Capsule()
                                 .fill(.clear)
                                 .frame(width: slotWidth, height: 48)
@@ -4080,10 +4073,18 @@ struct ContentView: View {
                                 )
                                 .offset(x: 7 + indicatorProgress * step)
                                 .allowsHitTesting(false)
+                                .animation(ChatMotion.press, value: isTabCapsulePressed)
                                 .animation(
                                     tabDragProgress == nil ? ChatMotion.layout : nil,
                                     value: indicatorProgress
                                 )
+
+                            HStack(spacing: 2) {
+                                ForEach(tabs, id: \.self) { tab in
+                                    tabButton(tab)
+                                }
+                            }
+                            .padding(.horizontal, 7)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Capsule())
