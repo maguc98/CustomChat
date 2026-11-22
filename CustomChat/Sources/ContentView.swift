@@ -2906,23 +2906,39 @@ struct ContentView: View {
             .background {
                 chatFrameColor.ignoresSafeArea(edges: .top)
             }
-            .confirmationDialog(
-                model.currentContact?.isGroup == true ? "群聊操作" : "联系人操作",
-                isPresented: $showContactActions,
-                titleVisibility: .visible
-            ) {
-                if let contact = model.currentContact {
-                    if contact.isGroup == true {
-                        Button("编辑群聊") { editingGroup = contact }
-                        Button("查看群聊资料") { showChatSettings = true }
-                    } else {
-                        Button("编辑好友备注") { editingFriend = contact }
-                        Button("查看朋友圈") { editingFriend = contact }
-                        Button("移除联系人", role: .destructive) { contactPendingDeletion = contact }
-                    }
+            .overlay {
+                if showContactActions {
+                    ContactActionsMenu(
+                        isGroup: model.currentContact?.isGroup == true,
+                        onDismiss: { showContactActions = false },
+                        onEdit: {
+                            guard let contact = model.currentContact else { return }
+                            showContactActions = false
+                            if contact.isGroup == true {
+                                editingGroup = contact
+                            } else {
+                                editingFriend = contact
+                            }
+                        },
+                        onDetails: {
+                            showContactActions = false
+                            if model.currentContact?.isGroup == true {
+                                showChatSettings = true
+                            } else {
+                                editingFriend = model.currentContact
+                            }
+                        },
+                        onRemove: {
+                            guard let contact = model.currentContact else { return }
+                            showContactActions = false
+                            contactPendingDeletion = contact
+                        }
+                    )
+                    .transition(.chatCinematic)
+                    .zIndex(30)
                 }
-                Button("取消", role: .cancel) {}
             }
+            .animation(ChatMotion.layout, value: showContactActions)
 
             Rectangle().fill(Macaron.line).frame(height: 1)
 
@@ -4861,6 +4877,94 @@ private struct MessageRow: View {
     }
 }
 
+
+private struct ContactActionsMenu: View {
+    let isGroup: Bool
+    let onDismiss: () -> Void
+    let onEdit: () -> Void
+    let onDetails: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.22)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onDismiss)
+
+            VStack(spacing: 14) {
+                Capsule()
+                    .fill(Color(hex: 0xD9DEE8))
+                    .frame(width: 34, height: 4)
+                    .padding(.top, 10)
+
+                HStack {
+                    Text(isGroup ? "群聊操作" : "联系人操作")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Macaron.ink)
+                    Spacer()
+                    Button("取消", action: onDismiss)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                }
+
+                VStack(spacing: 0) {
+                    actionRow(
+                        symbol: "square.and.pencil",
+                        title: isGroup ? "编辑群聊" : "编辑好友备注",
+                        action: onEdit
+                    )
+                    Divider().overlay(Macaron.line)
+                    actionRow(
+                        symbol: isGroup ? "person.2" : "person.crop.circle",
+                        title: isGroup ? "查看群聊资料" : "查看朋友圈",
+                        action: onDetails
+                    )
+                    if !isGroup {
+                        Divider().overlay(Macaron.line)
+                        actionRow(
+                            symbol: "person.crop.circle.badge.xmark",
+                            title: "移除联系人",
+                            tint: Color(hex: 0xD96C72),
+                            action: onRemove
+                        )
+                    }
+                }
+                .background(Color(hex: 0xF7F8FB), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Macaron.line, lineWidth: 1))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color(hex: 0xE9EDF3), lineWidth: 1))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+        .ignoresSafeArea()
+    }
+
+    private func actionRow(symbol: String, title: String, tint: Color = Macaron.ink, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 24, height: 24)
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(tint)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Macaron.secondary.opacity(0.7))
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
 
 private struct AddContentMenu: View {
     let onDismiss: () -> Void
