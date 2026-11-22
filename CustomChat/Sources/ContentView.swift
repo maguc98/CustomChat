@@ -3256,7 +3256,7 @@ struct ContentView: View {
             .frame(minWidth: 0, maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, isCompactConversation ? 6 : 15)
+        .padding(.horizontal, isCompactConversation ? 18 : 24)
         .padding(.top, 6)
         .padding(.bottom, 8)
         // Anchor the composer to the actual hosting window width. In LiveContainer
@@ -4937,7 +4937,7 @@ private struct ContactActionsMenu: View {
             .padding(.bottom, 20)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color(hex: 0xE9EDF3), lineWidth: 1))
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
         .ignoresSafeArea()
@@ -5015,7 +5015,7 @@ private struct AddContentMenu: View {
                 RoundedRectangle(cornerRadius: 25, style: .continuous)
                     .stroke(Color(hex: 0xE9EDF3), lineWidth: 1)
             )
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
         .ignoresSafeArea()
