@@ -4072,7 +4072,7 @@ struct ContentView: View {
                                     y: isTabCapsulePressed ? 5 : 2
                                 )
                                 .offset(x: 7 + indicatorProgress * step)
-                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                                 .animation(ChatMotion.press, value: isTabCapsulePressed)
                                 .animation(
                                     tabDragProgress == nil ? ChatMotion.layout : nil,
