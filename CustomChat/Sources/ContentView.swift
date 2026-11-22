@@ -1884,6 +1884,7 @@ struct ContentView: View {
     @StateObject private var model = ChatModel()
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .chats
+    @Namespace private var tabGlassNamespace
     @State private var showConversation = false
     @State private var showMyProfileEditor = false
     @State private var showPersonaSwitcher = false
@@ -4031,6 +4032,20 @@ struct ContentView: View {
             .foregroundStyle(selectedTab == tab ? Color(hex: 0x398FE0) : Macaron.secondary)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
+            .background {
+                if selectedTab == tab {
+                    if #available(iOS 26.0, *) {
+                        RoundedRectangle(cornerRadius: 17, style: .continuous)
+                            .fill(.clear)
+                            .glassEffect(.regular.tint(Color(hex: 0xD9ECFF)), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                            .glassEffectID("active-tab-indicator", in: tabGlassNamespace)
+                            .glassEffectTransition(.matchedGeometry)
+                    } else {
+                        RoundedRectangle(cornerRadius: 17, style: .continuous)
+                            .fill(Color(hex: 0xD9ECFF).opacity(0.72))
+                    }
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
