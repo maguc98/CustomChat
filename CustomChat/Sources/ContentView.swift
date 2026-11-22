@@ -1131,10 +1131,13 @@ private final class ChatModel: ObservableObject {
     }
 
     func isMessageFromActiveSender(_ message: ChatMessage) -> Bool {
+        // Message placement is anchored to the chat owner's perspective, not
+        // the currently selected composer identity. Switching the sender must
+        // never mirror existing messages or swap the two sides of the chat.
         if currentContact?.isGroup == true {
-            return message.senderAccountID == (activeGroupSenderID ?? activeAccountID)
+            return message.senderAccountID == activeAccountID
         }
-        return message.role == activeRole
+        return message.role == .me
     }
 
     func isFriend(_ accountID: UUID) -> Bool {
