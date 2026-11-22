@@ -4018,34 +4018,66 @@ struct ContentView: View {
         }
     }
 
+    private func tabButton(_ tab: AppTab) -> some View {
+        Button {
+            withAnimation(ChatMotion.layout) { selectedTab = tab }
+        } label: {
+            VStack(spacing: 5) {
+                Image(systemName: tab.symbol)
+                    .font(.system(size: 20, weight: selectedTab == tab ? .semibold : .regular))
+                Text(tab.rawValue)
+                    .font(.system(size: 10, weight: selectedTab == tab ? .semibold : .medium))
+            }
+            .foregroundStyle(selectedTab == tab ? Color(hex: 0x398FE0) : Macaron.secondary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+    }
+
+    @ViewBuilder
     private var tabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                Button { withAnimation(ChatMotion.layout) { selectedTab = tab } } label: {
-                    VStack(spacing: 5) {
-                        Image(systemName: tab.symbol)
-                            .font(.system(size: 21, weight: selectedTab == tab ? .semibold : .regular))
-                        Text(tab.rawValue)
-                            .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .regular))
-                    }
-                    .foregroundStyle(selectedTab == tab ? Color(hex: 0x4F9DE8) : Macaron.secondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background {
-                        if selectedTab == tab {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(accentColor.opacity(0.38))
-                                .padding(.horizontal, 5)
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 14) {
+                HStack(alignment: .center, spacing: 14) {
+                    HStack(spacing: 2) {
+                        ForEach([AppTab.chats, .contacts, .calls, .album], id: \\.self) { tab in
+                            tabButton(tab)
                         }
                     }
+                    .padding(.horizontal, 7)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+
+                    tabButton(.profile)
+                        .frame(width: 66)
+                        .glassEffect(.regular.interactive(), in: Circle())
                 }
-                .buttonStyle(FluidPressButtonStyle())
+                .padding(.horizontal, 18)
+                .padding(.top, 9)
+                .padding(.bottom, 5)
+                .frame(maxWidth: .infinity)
             }
+        } else {
+            HStack(spacing: 14) {
+                HStack(spacing: 2) {
+                    ForEach([AppTab.chats, .contacts, .calls, .album], id: \\.self) { tab in
+                        tabButton(tab)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .background(.ultraThinMaterial, in: Capsule())
+
+                tabButton(.profile)
+                    .frame(width: 66)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 9)
+            .padding(.bottom, 5)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 9)
-        .padding(.top, 4)
-        .background(Macaron.card)
-        .overlay(alignment: .top) { Rectangle().fill(Macaron.line).frame(height: 1) }
     }
 
     private var chatSettingsSheet: some View {
