@@ -2068,15 +2068,17 @@ struct ContentView: View {
             }
         }
         .overlay { minimizedCallOverlay }
-        .overlay(alignment: .topLeading) {
+        .overlay {
             if showConversation {
                 GeometryReader { geometry in
                     Color.clear
-                        .frame(width: 30, height: geometry.size.height / 2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
-                        .gesture(
+                        .simultaneousGesture(
                             DragGesture(minimumDistance: 16, coordinateSpace: .local)
                                 .onEnded { value in
+                                    // 从屏幕左半边任意位置开始向右滑动，都可以返回。
+                                    guard value.startLocation.x <= geometry.size.width / 2 else { return }
                                     let horizontal = value.translation.width
                                     let vertical = abs(value.translation.height)
                                     guard horizontal > 64, horizontal > vertical * 1.25 else { return }
@@ -2084,9 +2086,8 @@ struct ContentView: View {
                                     withAnimation(ChatMotion.layout) { showConversation = false }
                                 }
                         )
-                        .accessibilityLabel("从屏幕左侧向右滑动返回")
+                        .accessibilityLabel("从屏幕左半边向右滑动返回")
                 }
-                .allowsHitTesting(true)
                 .zIndex(100)
             }
         }
