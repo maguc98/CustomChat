@@ -1884,7 +1884,6 @@ struct ContentView: View {
     @StateObject private var model = ChatModel()
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .chats
-    @Namespace private var tabGlassNamespace
     @State private var isTabCapsulePressed = false
     @State private var tabDragProgress: CGFloat?
     @State private var showConversation = false
@@ -4043,70 +4042,136 @@ struct ContentView: View {
     @ViewBuilder
     private var tabBar: some View {
         if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 14) {
+            GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .center, spacing: 14) {
                     GeometryReader { proxy in
                         let tabs: [AppTab] = [.chats, .contacts, .calls, .album]
-                        let slotWidth = max(1, (proxy.size.width - 20) / 4)
-                        let step = slotWidth + 2
+                        let sideInset: CGFloat = 7
+                        let itemSpacing: CGFloat = 2
+                        let slotWidth = max(1, (proxy.size.width - sideInset * 2 - itemSpacing * 3) / 4)
+                        let step = slotWidth + itemSpacing
                         let restingIndex = CGFloat(tabs.firstIndex(of: selectedTab) ?? 0)
-                        let indicatorProgress = min(3, max(0, tabDragProgress ?? restingIndex))
+                        let progress = min(3, max(0, tabDragProgress ?? restingIndex))
+                        let lensWidth = min(proxy.size.width - 4, slotWidth * 1.38)
+                        let lensCenter = sideInset + slotWidth / 2 + progress * step
+                        let lensOffset = min(
+                            max(2, lensCenter - lensWidth / 2),
+                            max(2, proxy.size.width - lensWidth - 2)
+                        )
 
                         ZStack(alignment: .leading) {
+                            // The stationary base remains a single, quiet glass rail.
                             Capsule()
-                                .fill(.clear)
-                                .frame(width: slotWidth, height: 48)
-                                .glassEffect(
-                                    .regular.tint(Color(hex: 0xD9ECFF)).interactive(),
-                                    in: Capsule()
-                                )
-                                .glassEffectID("active-tab-indicator", in: tabGlassNamespace)
-                                .glassEffectTransition(.matchedGeometry)
-                                .scaleEffect(x: isTabCapsulePressed ? 1.10 : 1,
-                                             y: isTabCapsulePressed ? 1.16 : 1,
-                                             anchor: .center)
-                                .shadow(
-                                    color: Color(hex: 0x75AEE8).opacity(isTabCapsulePressed ? 0.20 : 0.08),
-                                    radius: isTabCapsulePressed ? 13 : 5,
-                                    x: 0,
-                                    y: isTabCapsulePressed ? 5 : 2
-                                )
-                                .offset(x: 7 + indicatorProgress * step)
-                                .accessibilityHidden(true)
-                                .animation(ChatMotion.press, value: isTabCapsulePressed)
-                                .animation(
-                                    tabDragProgress == nil ? ChatMotion.layout : nil,
-                                    value: indicatorProgress
-                                )
+                                .fill(.ultraThinMaterial)
+                                .overlay {
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.20), lineWidth: 0.8)
+                                }
+                                .overlay(alignment: .top) {
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [Color.white.opacity(0.24), .clear],
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                        )
+                                        .frame(height: 13)
+                                        .padding(.horizontal, 12)
+                                        .padding(.top, 1)
+                                        .blur(radius: 5)
+                                }
 
-                            HStack(spacing: 2) {
+                            // A quiet selected state is visible only while the finger is up.
+                            Capsule()
+                                .fill(Color.black.opacity(0.105))
+                                .frame(width: slotWidth, height: 46)
+                                .offset(x: sideInset + restingIndex * step)
+                                .opacity(isTabCapsulePressed ? 0 : 1)
+                                .animation(ChatMotion.layout, value: selectedTab)
+                                .animation(ChatMotion.press, value: isTabCapsulePressed)
+
+                            HStack(spacing: itemSpacing) {
                                 ForEach(tabs, id: \.self) { tab in
                                     tabButton(tab)
                                 }
                             }
-                            .padding(.horizontal, 7)
+                            .padding(.horizontal, sideInset)
+
+                            // This is the moving lens: it sits ABOVE the controls so the
+                            // system glass can refract the icons and labels beneath it.
+                            Capsule()
+                                .fill(.clear)
+                                .frame(width: lensWidth, height: 58)
+                                .glassEffect(
+                                    .regular.tint(Color(hex: 0xB9DFFF).opacity(0.22)).interactive(),
+                                    in: Capsule()
+                                )
+                                .overlay {
+                                    Capsule()
+                                        .stroke(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color(hex: 0xC7A8FF).opacity(0.68),
+                                                    Color(hex: 0x91DFFF).opacity(0.82),
+                                                    Color.white.opacity(0.72),
+                                                    Color(hex: 0x91E4D5).opacity(0.50),
+                                                    Color(hex: 0x9ABEFF).opacity(0.66)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
+                                            lineWidth: 1.05
+                                        )
+                                        .blur(radius: 0.25)
+                                }
+                                .overlay(alignment: .top) {
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [Color.white.opacity(0.42), .clear],
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                        )
+                                        .frame(height: 5)
+                                        .padding(.horizontal, 16)
+                                        .padding(.top, 1)
+                                        .blur(radius: 2)
+                                }
+                                .shadow(color: Color(hex: 0x8DC9FF).opacity(0.25), radius: 13, x: 0, y: 3)
+                                .scaleEffect(x: isTabCapsulePressed ? 1.035 : 0.94,
+                                             y: isTabCapsulePressed ? 1.10 : 0.94,
+                                             anchor: .center)
+                                .opacity(isTabCapsulePressed ? 1 : 0)
+                                .offset(x: lensOffset)
+                                .animation(ChatMotion.press, value: isTabCapsulePressed)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipShape(Capsule())
                         .contentShape(Capsule())
                         .simultaneousGesture(
                             DragGesture(minimumDistance: 0, coordinateSpace: .local)
                                 .onChanged { value in
                                     isTabCapsulePressed = true
-                                    let rawProgress = (value.location.x - 7 - slotWidth / 2) / step
-                                    let progress = min(3, max(0, rawProgress))
-                                    tabDragProgress = progress
+                                    let rawProgress = (value.location.x - sideInset - slotWidth / 2) / step
+                                    let nextProgress = min(3, max(0, rawProgress))
+                                    tabDragProgress = nextProgress
 
-                                    let nearestIndex = min(3, max(0, Int(progress.rounded())))
+                                    let nearestIndex = min(3, max(0, Int(nextProgress.rounded())))
                                     let nextTab = tabs[nearestIndex]
                                     if selectedTab != nextTab {
-                                        var transaction = Transaction(animation: .spring(response: 0.20, dampingFraction: 0.78))
-                                        transaction.disablesAnimations = false
-                                        withTransaction(transaction) {
+                                        withAnimation(.interactiveSpring(response: 0.18, dampingFraction: 0.78)) {
                                             selectedTab = nextTab
                                         }
                                     }
                                 }
-                                .onEnded { _ in
+                                .onEnded { value in
+                                    let rawProgress = (value.location.x - sideInset - slotWidth / 2) / step
+                                    let finalIndex = min(3, max(0, Int(rawProgress.rounded())))
+                                    selectedTab = tabs[finalIndex]
                                     withAnimation(ChatMotion.press) {
                                         isTabCapsulePressed = false
                                         tabDragProgress = nil
@@ -4115,7 +4180,6 @@ struct ContentView: View {
                         )
                     }
                     .frame(height: 56)
-                    .glassEffect(.regular, in: Capsule())
 
                     tabButton(.profile)
                         .frame(width: 66)
