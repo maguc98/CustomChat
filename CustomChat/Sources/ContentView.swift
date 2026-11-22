@@ -4937,7 +4937,7 @@ private struct ContactActionsMenu: View {
             .padding(.bottom, 20)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 25, style: .continuous).stroke(Color(hex: 0xE9EDF3), lineWidth: 1))
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 24)
             .padding(.bottom, 8)
         }
         .ignoresSafeArea()
@@ -5015,7 +5015,7 @@ private struct AddContentMenu: View {
                 RoundedRectangle(cornerRadius: 25, style: .continuous)
                     .stroke(Color(hex: 0xE9EDF3), lineWidth: 1)
             )
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 24)
             .padding(.bottom, 8)
         }
         .ignoresSafeArea()
