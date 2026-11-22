@@ -2243,58 +2243,6 @@ struct ContentView: View {
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(28)
             }
-            .confirmationDialog(
-                "删除“\(contactPendingDeletion?.name ?? "好友")”？",
-                isPresented: Binding(
-                    get: { contactPendingDeletion != nil },
-                    set: { if !$0 { contactPendingDeletion = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("从当前账号移除好友", role: .destructive) {
-                    if let contact = contactPendingDeletion {
-                        model.removeFriend(contact)
-                    }
-                    contactPendingDeletion = nil
-                }
-                Button("取消", role: .cancel) { contactPendingDeletion = nil }
-            } message: {
-                Text("只移除当前账号的好友关系，不会删除聊天记录、图片或语音，也不会影响其他账号。")
-            }
-            .confirmationDialog(
-                "删除群聊“\(groupPendingDeletion?.name ?? "群聊")”？",
-                isPresented: Binding(
-                    get: { groupPendingDeletion != nil },
-                    set: { if !$0 { groupPendingDeletion = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("删除群聊", role: .destructive) {
-                    if let group = groupPendingDeletion {
-                        model.deleteContact(group)
-                    }
-                    groupPendingDeletion = nil
-                }
-                Button("取消", role: .cancel) { groupPendingDeletion = nil }
-            } message: {
-                Text("将群聊从当前账号的好友列表中移除，并删除当前聊天身份下保存的该群聊记录。此操作无法撤销。")
-            }
-            .confirmationDialog(
-                "删除与“\(chatHistoryPendingDeletion?.name ?? "好友")”的所有聊天记录？",
-                isPresented: Binding(
-                    get: { chatHistoryPendingDeletion != nil },
-                    set: { if !$0 { chatHistoryPendingDeletion = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("删除全部聊天记录", role: .destructive) {
-                    if let contact = chatHistoryPendingDeletion { model.clearChatHistory(for: contact.id) }
-                    chatHistoryPendingDeletion = nil
-                }
-                Button("取消", role: .cancel) { chatHistoryPendingDeletion = nil }
-            } message: {
-                Text("只删除本账号与该好友的聊天消息、图片和附件，不会删除好友关系。")
-            }
             .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
             .overlay {
                 if showAddMenu {
@@ -2330,6 +2278,68 @@ struct ContentView: View {
                 }
             }
             .animation(ChatMotion.layout, value: showAddMenu)
+            .overlay {
+                if contactPendingDeletion != nil || groupPendingDeletion != nil || chatHistoryPendingDeletion != nil {
+                    ZStack(alignment: .bottom) {
+                        Color.black.opacity(0.24)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                contactPendingDeletion = nil
+                                groupPendingDeletion = nil
+                                chatHistoryPendingDeletion = nil
+                            }
+                        DeletionConfirmationCard(
+                            title: deletionPromptTitle,
+                            message: deletionPromptMessage,
+                            actionTitle: deletionActionTitle,
+                            onCancel: {
+                                contactPendingDeletion = nil
+                                groupPendingDeletion = nil
+                                chatHistoryPendingDeletion = nil
+                            },
+                            onDelete: {
+                                if let contact = contactPendingDeletion {
+                                    model.removeFriend(contact)
+                                } else if let group = groupPendingDeletion {
+                                    model.deleteContact(group)
+                                } else if let contact = chatHistoryPendingDeletion {
+                                    model.clearChatHistory(for: contact.id)
+                                }
+                                contactPendingDeletion = nil
+                                groupPendingDeletion = nil
+                                chatHistoryPendingDeletion = nil
+                            }
+                        )
+                        .padding(.horizontal, 22)
+                        .padding(.bottom, 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    .zIndex(50)
+                }
+            }
+            .animation(ChatMotion.layout, value: contactPendingDeletion != nil || groupPendingDeletion != nil || chatHistoryPendingDeletion != nil)
+    }
+
+    private var deletionPromptTitle: String {
+        if let group = groupPendingDeletion { return "删除群聊“\(group.name)”？" }
+        if let contact = contactPendingDeletion { return "删除好友“\(contact.name)”？" }
+        return "清空聊天记录？"
+    }
+
+    private var deletionPromptMessage: String {
+        if groupPendingDeletion != nil {
+            return "将群聊从当前账号的好友列表中移除，并删除当前聊天身份下保存的该群聊记录。此操作无法撤销。"
+        }
+        if contactPendingDeletion != nil {
+            return "只移除当前账号的好友关系，不会删除聊天记录、图片或语音，也不会影响其他账号。"
+        }
+        return "只删除本账号与该好友的聊天消息、图片和附件，不会删除好友关系。"
+    }
+
+    private var deletionActionTitle: String {
+        if groupPendingDeletion != nil { return "删除群聊" }
+        if contactPendingDeletion != nil { return "删除好友" }
+        return "删除全部聊天记录"
     }
 
     private var paymentPresentation: some View {
@@ -6737,6 +6747,71 @@ private struct SwipeRevealRow<Content: View, Actions: View>: View {
         }
         .clipped()
         .animation(ChatMotion.layout, value: revealWidth)
+    }
+}
+
+private struct DeletionConfirmationCard: View {
+    let title: String
+    let message: String
+    let actionTitle: String
+    let onCancel: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "trash")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xE45D5D))
+                    .frame(width: 44, height: 44)
+                    .background(Color(hex: 0xFFF0EF), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("确认操作")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Macaron.secondary)
+                    Text(title)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Macaron.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.bottom, 14)
+
+            Text(message)
+                .font(.system(size: 14))
+                .foregroundStyle(Color(hex: 0x778398))
+                .lineSpacing(5)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 22)
+
+            HStack(spacing: 10) {
+                Button(action: onCancel) {
+                    Text("取消")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x657187))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color(hex: 0xF1F4F8), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(FluidPressButtonStyle())
+
+                Button(action: onDelete) {
+                    Text(actionTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color(hex: 0xE45D5D), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(FluidPressButtonStyle())
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: 460)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(Color(hex: 0xE9EEF5), lineWidth: 1))
+        .shadow(color: Color.black.opacity(0.16), radius: 30, x: 0, y: 12)
     }
 }
 
