@@ -4043,7 +4043,7 @@ struct ContentView: View {
             GlassEffectContainer(spacing: 14) {
                 HStack(alignment: .center, spacing: 14) {
                     HStack(spacing: 2) {
-                        ForEach([AppTab.chats, .contacts, .calls, .album], id: \\.self) { tab in
+                        ForEach([AppTab.chats, .contacts, .calls, .album], id: \.self) { tab in
                             tabButton(tab)
                         }
                     }
@@ -4062,7 +4062,7 @@ struct ContentView: View {
         } else {
             HStack(spacing: 14) {
                 HStack(spacing: 2) {
-                    ForEach([AppTab.chats, .contacts, .calls, .album], id: \\.self) { tab in
+                    ForEach([AppTab.chats, .contacts, .calls, .album], id: \.self) { tab in
                         tabButton(tab)
                     }
                 }
