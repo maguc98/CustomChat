@@ -1885,6 +1885,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .chats
     @Namespace private var tabGlassNamespace
+    @State private var isTabCapsulePressed = false
     @State private var showConversation = false
     @State private var showMyProfileEditor = false
     @State private var showPersonaSwitcher = false
@@ -4035,14 +4036,17 @@ struct ContentView: View {
             .background {
                 if selectedTab == tab {
                     if #available(iOS 26.0, *) {
-                        RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        Capsule()
                             .fill(.clear)
-                            .glassEffect(.regular.tint(Color(hex: 0xD9ECFF)), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                            .glassEffect(.regular.tint(Color(hex: 0xD9ECFF)).interactive(), in: Capsule())
                             .glassEffectID("active-tab-indicator", in: tabGlassNamespace)
                             .glassEffectTransition(.matchedGeometry)
+                            .scaleEffect(isTabCapsulePressed ? 1.10 : 1)
+                            .shadow(color: Color(hex: 0x75AEE8).opacity(isTabCapsulePressed ? 0.22 : 0), radius: isTabCapsulePressed ? 12 : 0, y: 4)
                     } else {
-                        RoundedRectangle(cornerRadius: 17, style: .continuous)
-                            .fill(Color(hex: 0xD9ECFF).opacity(0.72))
+                        Capsule()
+                            .fill(Color(hex: 0xD9ECFF).opacity(isTabCapsulePressed ? 0.95 : 0.72))
+                            .scaleEffect(isTabCapsulePressed ? 1.08 : 1)
                     }
                 }
             }
@@ -4057,12 +4061,29 @@ struct ContentView: View {
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: 14) {
                 HStack(alignment: .center, spacing: 14) {
-                    HStack(spacing: 2) {
-                        ForEach([AppTab.chats, .contacts, .calls, .album], id: \.self) { tab in
-                            tabButton(tab)
+                    GeometryReader { proxy in
+                        HStack(spacing: 2) {
+                            ForEach([AppTab.chats, .contacts, .calls, .album], id: \.self) { tab in
+                                tabButton(tab)
+                            }
                         }
+                        .padding(.horizontal, 7)
+                        .contentShape(Capsule())
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                                .onChanged { value in
+                                    isTabCapsulePressed = true
+                                    let tabs: [AppTab] = [.chats, .contacts, .calls, .album]
+                                    let slotWidth = proxy.size.width / CGFloat(tabs.count)
+                                    let index = min(tabs.count - 1, max(0, Int(value.location.x / max(1, slotWidth))))
+                                    withAnimation(ChatMotion.press) { selectedTab = tabs[index] }
+                                }
+                                .onEnded { _ in
+                                    withAnimation(ChatMotion.press) { isTabCapsulePressed = false }
+                                }
+                        )
                     }
-                    .padding(.horizontal, 7)
+                    .frame(height: 56)
                     .glassEffect(.regular.interactive(), in: Capsule())
 
                     tabButton(.profile)
