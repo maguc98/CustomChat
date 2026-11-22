@@ -2065,6 +2065,28 @@ struct ContentView: View {
             }
         }
         .overlay { minimizedCallOverlay }
+        .overlay(alignment: .topLeading) {
+            if showConversation {
+                GeometryReader { geometry in
+                    Color.clear
+                        .frame(width: 30, height: geometry.size.height / 2)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 16, coordinateSpace: .local)
+                                .onEnded { value in
+                                    let horizontal = value.translation.width
+                                    let vertical = abs(value.translation.height)
+                                    guard horizontal > 64, horizontal > vertical * 1.25 else { return }
+                                    messageFocused = false
+                                    withAnimation(ChatMotion.layout) { showConversation = false }
+                                }
+                        )
+                        .accessibilityLabel("从屏幕左侧向右滑动返回")
+                }
+                .allowsHitTesting(true)
+                .zIndex(100)
+            }
+        }
         .sheet(item: Binding(
             get: { activeMomentForComments.map { MomentCommentTarget(id: $0) } },
             set: { activeMomentForComments = $0?.id }
@@ -2839,19 +2861,6 @@ struct ContentView: View {
     private var conversationView: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Button {
-                    messageFocused = false
-                    withAnimation(ChatMotion.layout) { showConversation = false }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(messageTextColor)
-                        .frame(width: 40, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("返回聊天列表")
-
                 Button {
                     if model.currentContact?.isGroup == true {
                         showCreateGroup = true
