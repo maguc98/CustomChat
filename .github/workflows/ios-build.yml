@@ -15,6 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Generate App Icon
+        run: |
+          swift scripts/generate_app_icon.swift
+          test -s CustomChat/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+
       - name: Select Xcode
         run: |
           XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n 1)
