@@ -113,7 +113,7 @@ ctx.strokePath()
 // Orbiting iridescent ring, drawn as a tilted ellipse.
 ctx.saveGState()
 ctx.translateBy(x: 512, y: 540)
-ctx.rotate(by: -.36)
+ctx.rotate(by: -0.36)
 ctx.translateBy(x: -512, y: -540)
 let orbit = CGPath(ellipseIn: CGRect(x: 75, y: 425, width: 900, height: 245), transform: nil)
 ctx.addPath(orbit)
